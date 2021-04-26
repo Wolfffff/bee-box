@@ -58,24 +58,14 @@ ARUCO_DICT = {
 print("[INFO] detecting '{}' tags...".format("DICT_5X5_100"))
 arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT["DICT_4X4_50"])
 arucoParams = cv2.aruco.DetectorParameters_create()
-# arucoParams.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+arucoParams.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
 arucoParams.adaptiveThreshWinSizeStep = 1
 arucoParams.adaptiveThreshWinSizeMin = 3
 arucoParams.adaptiveThreshWinSizeMax = 30
-# arucoParams.maxMarkerPerimeterRate = 1
 
 arucoParams.adaptiveThreshConstant = 12
-# arucoParams.cornerRefinementMaxIterations = 50
-
-# arucoParams.maxErroneousBitsInBorderRate =.5
-# arucoParams.errorCorrectionRate = 0.8
-# arucoParams.aprilTagDeglitch = 1
-# arucoParams.errorCorrectionRate = .5
-# arucoParams.polygonalApproxAccuracyRate = .05
-# initialize the video stream and allow the camera sensor to warm up
 print("[INFO] starting video stream...")
-vs = cv2.VideoCapture("/Users/wolf/git/bee-box/recording/test_1.mp4")
-# result = cv2.VideoWriter('test.mp4',  cv2.VideoWriter_fourcc(*'H264'), 20, (2600,1800))
+vs = cv2.VideoCapture("/Users/wolf/git/bee-box/analysis/04222021_trackingdata_20210422_132511.mp4")
 
 results_df = pd.DataFrame(columns = ['Frame', 'Tag', 'cX','cY'])
 
@@ -83,41 +73,34 @@ results_df = pd.DataFrame(columns = ['Frame', 'Tag', 'cX','cY'])
 i = 0
 while vs.isOpened():
     ret, frame = vs.read()
-    print(i)
+    print("Frame Number: ", i)
     # detect ArUco markers in the input frame
     (corners, ids, rejected) = cv2.aruco.detectMarkers(
         frame, arucoDict, parameters=arucoParams)
-    # frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-
-    # frame = cv2.aruco.drawDetectedMarkers(frame, corners, ids)
-    # frame = cv2.aruco.drawDetectedMarkers(frame, rejected)
     
-    # verify *at least* one ArUco marker was detected
     if len(corners) > 0:
         for (markerCorner, markerID) in zip(corners, ids):
             corners = markerCorner.reshape((4, 2))
             (topLeft, topRight, bottomRight, bottomLeft) = corners
 
             # convert each of the (x, y)-coordinate pairs to integers
-            topRight = (int(topRight[0]), int(topRight[1]))
-            bottomRight = (int(bottomRight[0]), int(bottomRight[1]))
-            bottomLeft = (int(bottomLeft[0]), int(bottomLeft[1]))
-            topLeft = (int(topLeft[0]), int(topLeft[1]))
+            topRight = (topRight[0], topRight[1])
+            bottomRight = (bottomRight[0], bottomRight[1])
+            bottomLeft = (bottomLeft[0], bottomLeft[1])
+            topLeft = (topLeft[0], topLeft[1])
             
-            cX = int((topLeft[0] + bottomRight[0]) / 2.0)
-            cY = int((topLeft[1] + bottomRight[1]) / 2.0)
+            # Calculate centroid x a
+            cX = (topLeft[0] + bottomRight[0]) / 2.0
+            cY = (topLeft[1] + bottomRight[1]) / 2.0
 
             # 'Frame', 'Tag', 'cX','cY'
-            results_df.loc[len(results_df)] = [i, markerID[0], cX, cY]
+            results_df.loc[len(results_df)] = [int(i), int(markerID[0]), cX, cY]
     i = i + 1
-    # show the output frame
-    # result.write(frame)
-    # cv2.imshow("Frame", frame)
-    key = cv2.waitKey(1) & 0xFF
 
-    # if the `q` key was pressed, break from the loop
-    if key == ord("q"):
-        break
+
+
+results_df = results_df.astype({'Frame': int,'Tag': int, 'cX': np.float64,'cY': np.float64})
+results_df.to_csv("results.csv", index=False)
 
 # do a bit of cleanup
 # cv2.destroyAllWindows()
