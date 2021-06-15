@@ -92,7 +92,7 @@ def plot_occupancy_map(aruco_array, tag_number):
 	path = find_tag_path(aruco_array, tag_number)
 	the_dpi = 100
 	path_fig = plt.figure(figsize=(1080/the_dpi, 1080/the_dpi), dpi = the_dpi)
-	ax = sns.kdeplot(x = path[0], y = path[1], cmap = 'Reds', shade = True, thresh = 0.001)
+	ax = sns.kdeplot(x = path[0], y = path[1], cmap = "Reds", shade = True, n_levels = 500)
 	plt.xticks(np.arange(np.floor(min(path[0]) / 100.) * 100, np.ceil(max(path[0]) / 100.) * 100, 100.))
 	plt.yticks(np.arange(np.floor(min(path[1]) / 100.) * 100, np.ceil(max(path[1]) / 100.) * 100, 100.))
 	plt.gca().set_aspect('equal', 'box')
@@ -119,7 +119,7 @@ def plot_error_map(aruco_array, tag_number, gap_threshold):
 				gaps[1].append(float(path_wg[1, j] + gap_increment * np.sin(gap_angle)))
 
 	gaps = np.array(gaps)
-	ax = sns.kdeplot(x = gaps[0], y = gaps[1], cmap = 'Reds', shade = True, thresh = 0.001)
+	ax = sns.kdeplot(x = gaps[0], y = gaps[1], cmap = "Reds", shade = True, n_levels = 500)
 	plt.xticks(np.arange(np.floor(min(gaps[0]) / 100.) * 100, np.ceil(max(gaps[0]) / 100.) * 100, 100.))
 	plt.yticks(np.arange(np.floor(min(gaps[1]) / 100.) * 100, np.ceil(max(gaps[1]) / 100.) * 100, 100.))
 	plt.gca().set_aspect('equal', 'box')
@@ -157,6 +157,76 @@ def show_gap_starts(aruco_array, video_path, tag_number, gap_threshold):
 				    continue
 
 	cv2.destroyAllWindows()
+
+def show_all_frames(aruco_array, video_path, tag_number):
+	video_data = cv2.VideoCapture(video_path)
+	fps = video_data.get(cv2.CAP_PROP_FPS)
+	font = cv2.FONT_HERSHEY_SIMPLEX
+	success, image = video_data.read()
+	h, w, c = image.shape
+
+	path_wg = find_tag_path_wg(aruco_array, tag_number)
+	for j in range(0, len(path_wg[0])):
+		video_data.set(1, int(path_wg[2, j - 1]))
+		success, image = video_data.read()
+		
+		if success == True:
+			image = cv2.circle(image, (int(path_wg[0, j - 1]), int(path_wg[1, j - 1])), 120, (0, 0, 0), 2)
+			image = cv2.resize(image, (800,800))
+			timestamp = str(datetime.timedelta(seconds = np.round(video_data.get(cv2.CAP_PROP_POS_MSEC) / 1000.0)))
+			cv2.rectangle(image, (0, 800), (800, 780), (255, 255, 255), -1)
+			cv2.putText(image, 'Timestamp: ' + timestamp + ', Frame: ' + str(int(path_wg[2, j - 1])) + ', Gap length: ' + str(int(path_wg[3, j])) \
+				+ '  (~' + str(np.round(path_wg[3, j] * 10. / fps) / 10.) + ' seconds @' + str(fps) + ' fps)', (10, 794), font, 0.5, (0, 0, 0), 1)
+			cv2.imshow('Bee #' + str(tag_number) + ', press esc to leave', image)
+			if cv2.waitKey(0) == 27:
+			    break
+			else:
+			    continue
+
+	cv2.destroyAllWindows()
+
+def get_sec(time_str):
+    h, m, s = time_str.split(':')
+    return int(h) * 3600 + int(m) * 60 + int(s)
+
+def show_nth_bee_at_timestamp(aruco_array, video_path, tag_number, timestamp):  # takes HH:MM:SS timestamp string
+	video_data = cv2.VideoCapture(video_path)
+	fps = video_data.get(cv2.CAP_PROP_FPS)
+	font = cv2.FONT_HERSHEY_SIMPLEX
+	success, image = video_data.read()
+	h, w, c = image.shape
+	path_wg = find_tag_path_wg(aruco_array, tag_number)
+
+	target_frame = int(get_sec(timestamp) * fps)
+	print('Ideal frame number for timestamp ' + timestamp + ' is ' + str(target_frame))
+
+	available_frames = np.asarray(path_wg[2]).astype('int')
+	j = (np.abs(available_frames - target_frame)).argmin()
+	print('The closest available frame is the ' + str(j) + '-th available frame.')
+	print('This corresponds to the frame number ' + str(path_wg[2, j]))
+
+	video_data.set(1, int(path_wg[2, j]))
+	success, image = video_data.read()
+
+	if success == True:
+		image = cv2.circle(image, (int(path_wg[0, j]), int(path_wg[1, j])), 120, (0, 0, 0), 2)
+		image = cv2.resize(image, (800,800))
+		timestamp = str(datetime.timedelta(seconds = np.round(video_data.get(cv2.CAP_PROP_POS_MSEC) / 1000.0)))
+		cv2.rectangle(image, (0, 800), (800, 780), (255, 255, 255), -1)
+		cv2.putText(image, 'Timestamp: ' + timestamp + ', Frame: ' + str(int(path_wg[2, j])) + ', Off by: ' + str(abs(int(path_wg[2, j]) - target_frame)) \
+		 + ' frames  (~' + str(np.round(abs(int(path_wg[2, j]) - target_frame) * 10. / fps) / 10.) + ' seconds @' + str(fps) + ' fps)', (10, 794), font, 0.5, (0, 0, 0), 1)
+		cv2.imshow('Bee #' + str(tag_number) + ', Press any key to leave', image)
+
+
+	cv2.waitKey(0)
+	cv2.destroyAllWindows()
+
+def show_all_bees_at_timestamp(aruco_array, video_path, timestamp):
+	tags = findtags(aruco_array)
+
+	for j in tags:
+		show_nth_bee_at_timestamp(aruco_array, video_path, j, timestamp)
+
 
 def collect_all_bee_stats(aruco_array, video_path):
 	video_data = cv2.VideoCapture(video_path)
@@ -198,13 +268,47 @@ def display_bee_stats_table(aruco_array, video_path):
 	g100s_skips = [str(j) for j in g100s_skips]
 	g100s_skips.insert(0, ' > 100 second gaps')
 
-	captured_percents = [str(round(j, 1)) for j in captured_percents]
+	captured_percents = [str(round(j, 2)) for j in captured_percents]
 	captured_percents.insert(0, '% frames with data')
 
 	table = [captured_percents, longest_skips, g1s_skips, g10s_skips, g100s_skips]
 
 	print(tabulate(table, headers = tags))
 
+def look_at_succesful_frames(aruco_array, video_path):
+	video_data = cv2.VideoCapture(video_path)
+	total_frames = float(video_data.get(cv2.CAP_PROP_FRAME_COUNT))
+	print(total_frames)
+
+	tags = findtags(aruco_array)
+
+	bins = []
+	for tag in tags:
+		row = np.zeros(int(round(total_frames / 1000.)))
+		path_wg = find_tag_path_wg(aruco_array, tag)
+		frames = np.asarray(path_wg[2]).astype('int')
+
+		print(np.max(frames))
+
+		for k in frames:
+			row[int(round(k / 1000.))] += 1
+
+		print('Done with tag #' + str(tag))
+
+		for j in range(int(round(total_frames * 9 / (1000. * 16 * len(tags))))):
+			bins.append(row)
+			# This is super crude but whatever.  You run this once.  Go get a coffee.
+
+	the_dpi = 100
+	plt.figure(figsize=(1920/the_dpi, 1080/the_dpi), dpi = the_dpi)
+	plt.imshow(bins)
+	
+	ytick_spots = [(j + 0.5) * (len(bins) / len(tags)) for j in range(0, len(tags))]
+	yticks = ['#' + str(j) for j in tags]
+
+	plt.yticks(ytick_spots, yticks)
+	plt.savefig('Succesful_frames.png')
+	print('Saved figure as Succesful_frames.png')
 
 
 # 
@@ -218,9 +322,15 @@ aruco = load_csv('20210506_12h_Tracked_DefaultArUcoParams.csv')
 #plot_bee_path(aruco, 45)
 #plot_path_with_red_gaps(aruco, 45, 50)
 
-#plot_occupancy_map(aruco, 45)
-#plot_error_map(aruco, 45, 50)
+plot_occupancy_map(aruco, 1)
+plot_error_map(aruco, 1, 50)
+plot_occupancy_map(aruco, 45)
+plot_error_map(aruco, 45, 50)
 
-#show_gap_starts(aruco, '20210505_run003_00000000.avi', 45, 2000)
+#show_gap_starts(aruco, '20210505_run003_00000000.avi', 1, 2400)
+#show_all_frames(aruco, '20210505_run003_00000000.avi', 3)
+#show_nth_bee_at_timestamp(aruco, '20210505_run003_00000000.avi', 41, '09:34:53')
+#show_all_bees_at_timestamp(aruco, '20210505_run003_00000000.avi', '09:34:53')
 
-display_bee_stats_table(aruco, '20210505_run003_00000000.avi')
+#display_bee_stats_table(aruco, '20210505_run003_00000000.avi')
+#look_at_succesful_frames(aruco, '20210505_run003_00000000.avi')
