@@ -312,8 +312,7 @@ def look_at_succesful_frames(aruco_array, video_path):
 
 
 # 
-aruco = load_csv('20210506_12h_Tracked_DefaultArUcoParams.csv')
-
+#aruco = load_csv('20210506_12h_Tracked_DefaultArUcoParams.csv')
 
 #tags = findtags(aruco)
 #print('I found the following tags:')
@@ -321,11 +320,6 @@ aruco = load_csv('20210506_12h_Tracked_DefaultArUcoParams.csv')
 
 #plot_bee_path(aruco, 45)
 #plot_path_with_red_gaps(aruco, 45, 50)
-
-plot_occupancy_map(aruco, 1)
-plot_error_map(aruco, 1, 50)
-plot_occupancy_map(aruco, 45)
-plot_error_map(aruco, 45, 50)
 
 #show_gap_starts(aruco, '20210505_run003_00000000.avi', 1, 2400)
 #show_all_frames(aruco, '20210505_run003_00000000.avi', 3)
