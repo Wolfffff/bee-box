@@ -3,17 +3,12 @@
 
 # import the necessary packages
 
-from imutils.video import VideoStream
-import argparse
-import imutils
-import time
 import cv2
-import sys
 import numpy as np
-from skimage.filters import threshold_yen
-from skimage.exposure import rescale_intensity
-from skimage.io import imread, imsave
 import pandas as pd
+from datetime import datetime
+
+import ArUco_with_pandas_dknapp as awpd
 
 # construct the argument parser and parse the arguments
 # ap = argparse.ArgumentParser()
@@ -58,27 +53,55 @@ ARUCO_DICT = {
 print("[INFO] detecting '{}' tags...".format("DICT_5X5_100"))
 arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT["DICT_4X4_50"])
 arucoParams = cv2.aruco.DetectorParameters_create()
-arucoParams.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
-arucoParams.adaptiveThreshWinSizeStep = 1
-arucoParams.adaptiveThreshWinSizeMin = 3
-arucoParams.adaptiveThreshWinSizeMax = 30
+#arucoParams.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+#arucoParams.adaptiveThreshWinSizeStep = 1
+#arucoParams.adaptiveThreshWinSizeMin = 3
+#arucoParams.adaptiveThreshWinSizeMax = 30
 
-arucoParams.adaptiveThreshConstant = 12
+#arucoParams.adaptiveThreshConstant = 12
+
+#dknapp constants
+# arucoParams.maxMarkerPerimeterRate = 0.06
+# arucoParams.minMarkerPerimeterRate = 0.03
+
+#arucoParams.perspectiveRemoveIgnoredMarginPerCell = 0.13
+
+arucoParams.errorCorrectionRate = 1.
+
 print("[INFO] starting video stream...")
-vs = cv2.VideoCapture("/Users/wolf/git/bee-box/analysis/04222021_trackingdata_20210422_132511.mp4")
+vs = cv2.VideoCapture("d:\\sleap-tigergpu\\20210505_run003_00000000.avi")
+fps = vs.get(cv2.CAP_PROP_FPS)
+
+out = cv2.VideoWriter('ArUco_Labelled_20210619_2400_Test_ER10.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (800,800))
 
 results_df = pd.DataFrame(columns = ['Frame', 'Tag', 'cX','cY'])
 
 # loop over the frames from the video stream
+
+start_time = datetime.now()
+
+font = cv2.FONT_HERSHEY_SIMPLEX
+
+frames_to_watch = 2400
+bee_population = 16
+
+tlx = 134
+tly = 1050
+
+dimension = 1750
+
 i = 0
+detected = 0
 while vs.isOpened():
 	ret, frame = vs.read()
-	print("Frame Number: ", i)
+	frame = frame[tlx:tlx + dimension, tly:tly + dimension]
 	# detect ArUco markers in the input frame
 	(corners, ids, rejected) = cv2.aruco.detectMarkers(
 		frame, arucoDict, parameters=arucoParams)
-	
+
+	detected += len(corners)
 	if len(corners) > 0:
+		len(corners)
 		for (markerCorner, markerID) in zip(corners, ids):
 			corners = markerCorner.reshape((4, 2))
 			(topLeft, topRight, bottomRight, bottomLeft) = corners
@@ -95,12 +118,48 @@ while vs.isOpened():
 
 			# 'Frame', 'Tag', 'cX','cY'
 			results_df.loc[len(results_df)] = [int(i), int(markerID[0]), cX, cY]
+
+			frame = cv2.circle(frame, (int(round(cX)), int(round(cY))), 50, (255, 0, 0), 2)
+			cv2.putText(frame, str(int(markerID[0])), (int(round(cX)), int(round(cY)) - 50), font, 2, (255, 0, 0), 2)
+
 	i = i + 1
 
+	frame = cv2.resize(frame, (800,800))
+	out.write(frame)
+	cv2.imshow('current frame', frame)
+	cv2.waitKey(1)
 
+	#Quit after a short time
+	if i == frames_to_watch:
+		break
+
+	print("Frame Number: " +  str(i) + ', Total Detected Tags: ' + str(detected))
+
+end_time = datetime.now()
+delta = end_time - start_time
+print('\nExecution time: ' + str(round(delta.total_seconds() * 1000)) + 'ms')
+print('FPS: ' + str(round(float(delta.total_seconds()) / float(frames_to_watch), 2)) + '\n')
+
+print('Detected total of ' + str(detected) + ' tags.')
+print('This is a data density of ' + str(round(float(detected) * 100. / float(bee_population * frames_to_watch), 2)) + '%')
 
 results_df = results_df.astype({'Frame': int,'Tag': int, 'cX': np.float64,'cY': np.float64})
 results_df.to_csv("results.csv", index=False)
 
 # do a bit of cleanup
-# cv2.destroyAllWindows()
+vs.release()
+out.release()
+cv2.destroyAllWindows()
+
+aruco_df = awpd.load_into_pd_dataframe('results.csv')
+tags = awpd.find_tags_fast(aruco_df)
+aruco_df_by_tag = awpd.sort_for_individual_tags(aruco_df, tags)
+
+for tag in tags:
+	print('\n' + '=' * 50)
+	print(tag)
+	print('\n' + '-' * 50)
+	print(aruco_df_by_tag[tag])
+
+print('\n\nFound the following tags (total of ' + str(len(tags)) + '):')
+print(tags)

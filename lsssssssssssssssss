@@ -1,0 +1,65 @@
+[33mcommit f83b7cbafa00c1a563a3dd145b19a177bb10f5ea[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m)[m
+Author: dyknapp <dknapp@princeton.edu>
+Date:   Sun Jun 13 17:09:58 2021 +0200
+
+    Taking a closer look at ArUco output
+
+[33mcommit 38d3fd56759f454d9bfee9bab5acfe9a6f0d5d6d[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: Daniel Ruttenberg <danielruttenberg@vpn10-client-128-112-70-188.princeton.edu>
+Date:   Mon May 17 21:04:28 2021 -0400
+
+    Added Andrew's Network Analysis
+
+[33mcommit cd55ee7a0543914ca8e3dc7d37062c15d4e9034e[m
+Author: Wolf <22243650+Wolfffff@users.noreply.github.com>
+Date:   Sun Apr 25 21:57:23 2021 -0400
+
+    Update 20210423_RunArucoCenters_Video.py
+
+[33mcommit f88e87f2f805e37d978d213a4213a6d21088c0fe[m
+Author: Wolf <22243650+Wolfffff@users.noreply.github.com>
+Date:   Fri Apr 23 14:27:10 2021 -0400
+
+    Clearning up tracking and adding CSV output
+
+[33mcommit da5447c9d49f336d619e85c23d918fe0bdc92707[m
+Author: Daniel Ruttenberg <danielruttenberg@dynamic-oit-vapornet100-10-9-44-129.princeton.edu>
+Date:   Fri Apr 23 13:15:44 2021 -0400
+
+    Added Analysis Pipeline to Generate .csv Files
+
+[33mcommit 65ba8f1f46bca7e54387c2a03217de560b9980d3[m
+Author: Scott Wolf <scott.w.wolf1@gmail.com>
+Date:   Mon Mar 15 14:59:55 2021 -0400
+
+    Tracking update
+
+[33mcommit 411a8ed789f1f361a8403e968386e952c23e3154[m
+Author: Daniel Ruttenberg <danielruttenberg@dynamic-oit-vapornet100-10-8-98-114.princeton.edu>
+Date:   Tue Feb 23 12:27:41 2021 -0500
+
+    Added Parts List
+
+[33mcommit 51c064950b22d5aad1df6747255419c89fb46418[m
+Author: Scott Wolf <scott.w.wolf1@gmail.com>
+Date:   Tue Feb 23 12:23:58 2021 -0500
+
+    Basic part_list(to be removed) + cleaning
+
+[33mcommit 72c75cce68a4ddb08d2ef0ea66ea55508b48d9ea[m
+Author: Scott Wolf <scott.w.wolf1@gmail.com>
+Date:   Mon Feb 22 13:00:06 2021 -0500
+
+    Adding basic designs and recording.md
+
+[33mcommit 041bce15e1b40fbd5c215ec9361262186a854a2c[m
+Author: Daniel Ruttenberg <danielruttenberg@dynamic-oit-vapornet100-10-8-98-114.princeton.edu>
+Date:   Wed Feb 17 13:39:27 2021 -0500
+
+    Added Social Network Modeling and Rasp Pi Pipeline
+
+[33mcommit f6251f34f7e97889edeecc5f4e6922bd4ee085e3[m
+Author: Wolf <22243650+Wolfffff@users.noreply.github.com>
+Date:   Wed Feb 3 18:55:34 2021 -0500
+
+    Initial commit
