@@ -309,22 +309,3 @@ def look_at_succesful_frames(aruco_array, video_path):
 	plt.yticks(ytick_spots, yticks)
 	plt.savefig('Succesful_frames.png')
 	print('Saved figure as Succesful_frames.png')
-
-
-# 
-#aruco = load_csv('20210506_12h_Tracked_DefaultArUcoParams.csv')
-
-#tags = findtags(aruco)
-#print('I found the following tags:')
-#print(tags)
-
-#plot_bee_path(aruco, 45)
-#plot_path_with_red_gaps(aruco, 45, 50)
-
-#show_gap_starts(aruco, '20210505_run003_00000000.avi', 1, 2400)
-#show_all_frames(aruco, '20210505_run003_00000000.avi', 3)
-#show_nth_bee_at_timestamp(aruco, '20210505_run003_00000000.avi', 41, '09:34:53')
-#show_all_bees_at_timestamp(aruco, '20210505_run003_00000000.avi', '09:34:53')
-
-#display_bee_stats_table(aruco, '20210505_run003_00000000.avi')
-#look_at_succesful_frames(aruco, '20210505_run003_00000000.avi')

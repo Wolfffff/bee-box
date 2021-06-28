@@ -1,8 +1,3 @@
-# USAGE
-# python detect_aruco_video.py
-
-# import the necessary packages
-
 import cv2
 import numpy as np
 import pandas as pd
