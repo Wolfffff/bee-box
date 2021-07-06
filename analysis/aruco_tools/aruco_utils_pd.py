@@ -7,7 +7,7 @@ from datetime import datetime
 import time
 import math
 import pickle  #pip install pickle-mixin
-import tabulate
+from tabulate import tabulate
 
 
 def load_into_pd_dataframe(ArUco_csv_path: str) -> pd.DataFrame:
@@ -176,9 +176,9 @@ def find_tag_path_with_gaps(aruco_dict_by_tag:dict, tag_number:int):
 	
 	path = [[],[],[],[]]
 	
-	path[0] = aruco_dict_by_tag[tag_number].index
-	path[1] = aruco_dict_by_tag[tag_number]['cX']
-	path[2] = aruco_dict_by_tag[tag_number]['cY']
+	path[2] = aruco_dict_by_tag[tag_number].index
+	path[0] = aruco_dict_by_tag[tag_number]['cX']
+	path[1] = aruco_dict_by_tag[tag_number]['cY']
 
 	path[3] = np.zeros(len(path[2]))
 
@@ -210,7 +210,7 @@ def collect_all_bee_stats(tags, aruco_df_by_tag, total_frames, fps):
 		g10s_skips.append(len([skip for skip in skips_data if skip > fps * 10]))
 		g100s_skips.append(len([skip for skip in skips_data if skip > fps * 100]))
 
-		captured_percents.append(float(np.sum(skips_data)) * 100. / total_frames)
+		captured_percents.append(float(len(aruco_df_by_tag[tag_number].index)) * 100. / total_frames)
 
 	return tags, longest_skips, g1s_skips, g10s_skips, g100s_skips, captured_percents
 
@@ -253,8 +253,8 @@ def print_by_tag_data(tags, aruco_df_by_tag):
 
 if __name__ == "__main__":
 	aruco_df = load_into_pd_dataframe('d:\\20210706_run000_00000000_aruco_annotated.csv')
-	tags = find_tags_fast(aruco_df)
+	tags = np.sort(find_tags_fast(aruco_df))
 	aruco_df_by_tag = sort_for_individual_tags(aruco_df, tags)
 	print_by_tag_data(tags, aruco_df_by_tag)
 	print('--------------------------------------------------\n\nStats by tags: \n')
-	display_bee_stats_table(tags, aruco_df_by_tag, 1800, 20)
+	display_bee_stats_table(tags, aruco_df_by_tag, np.max(aruco_df.index) + 1, 20)
