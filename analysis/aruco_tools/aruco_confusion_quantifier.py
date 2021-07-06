@@ -3,6 +3,7 @@
 
 # Heavily based on: https://www.pyimagesearch.com/2020/12/21/detecting-aruco-markers-with-opencv-and-python/
 
+import itertools
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -22,18 +23,18 @@ def create_confusion_matrix(aruco_csv_path: str, output_csv_path: str, checking_
 
 	confusion_matrix = np.zeros((len(tags), len(tags)))
 
-	for frame in range(np.min(aruco_df.index), np.max(aruco_df.index)):
+	for frame in range(np.min(aruco_df.index), np.max(aruco_df.index) - checking_window):
 		window_iter = aruco_df.loc[frame:frame + checking_window].itertuples()
-		print(window_iter)
 
-		for row1 in window_iter:
-			for row2 in window_iter:
-				distance = float(np.sqrt(np.power(row2.cX - row1.cX, 2) + np.power(row2.cY - row1.cY, 2)))
-				if distance != 0 and row1.Tag != row2.Tag:
-					confusion_matrix[index_dict[row1.Tag], index_dict[row2.Tag]] += 1. / distance
+		for row1, row2 in [(a, b) for a in window_iter for b in window_iter]:
+			if row2.Tag != row1.Tag:
+				distance_squared = float(np.power(row1.cX - row2.cX, 2) + np.power(row1.cY - row2.cY, 2))
+				if distance_squared != 0:
+					confusion_matrix[index_dict[row1.Tag], index_dict[row2.Tag]] += 1. / distance_squared
+					confusion_matrix[index_dict[row2.Tag], index_dict[row1.Tag]] += 1. / distance_squared
 
 	np.savetxt(output_csv_path, confusion_matrix, delimiter = ',')
-	print(confusion_matrix)
+	# print(confusion_matrix)
 
 	plt.imshow(confusion_matrix)
 	plt.xticks(range(0, len(tags)), [str(tag) for tag in tags])
