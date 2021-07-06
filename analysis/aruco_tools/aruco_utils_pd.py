@@ -17,11 +17,13 @@ def load_into_pd_dataframe(ArUco_csv_path: str) -> pd.DataFrame:
 	aruco_df = pd.read_csv(ArUco_csv_path)
 	print('\nLoaded csv file with following head: \n' + \
 			'---------------------------------------------- \n' + str(aruco_df.head()) + '\n')
+
+	aruco_df = aruco_df[['Frame', 'Tag', 'cX', 'cY']]
 	aruco_df = aruco_df.set_index('Frame')
-	print('\nRemoved redundant column, set frames as index: \n' + \
+	print('\nRemoved redundant column(s), set frames as index: \n' + \
 			'---------------------------------------------- \n' + str(aruco_df.head()) + '\n\n')
 
-	return aruco_df
+	return aruco_df.sort_index()
 
 def find_tags_fast(aruco_df: pd.DataFrame) -> np.array:
 	"""
@@ -187,7 +189,7 @@ def find_tag_path_with_gaps(aruco_dict_by_tag:dict, tag_number:int):
 
 	return path
 			
-def collect_all_bee_stats(tags, aruco_df_by_tag, total_frames):
+def collect_all_bee_stats(tags, aruco_df_by_tag, total_frames, fps):
 	"""
 	
 	"""
@@ -212,11 +214,11 @@ def collect_all_bee_stats(tags, aruco_df_by_tag, total_frames):
 
 	return tags, longest_skips, g1s_skips, g10s_skips, g100s_skips, captured_percents
 
-def display_bee_stats_table(aruco_array, video_path, total_frames):
+def display_bee_stats_table(aruco_array, video_path, total_frames, fps):
 	"""
 	
 	"""
-	tags, longest_skips, g1s_skips, g10s_skips, g100s_skips, captured_percents = collect_all_bee_stats(aruco_array, video_path, total_frames)
+	tags, longest_skips, g1s_skips, g10s_skips, g100s_skips, captured_percents = collect_all_bee_stats(aruco_array, video_path, total_frames, fps)
 
 	longest_skips = [str(j) for j in longest_skips]
 	longest_skips.insert(0, ' Longest gaps')
@@ -246,3 +248,13 @@ def print_by_tag_data(tags, aruco_df_by_tag):
 		print(tag)
 		print('\n' + '-' * 50)
 		print(aruco_df_by_tag[tag])
+
+
+
+if __name__ == "__main__":
+	aruco_df = load_into_pd_dataframe('d:\\20210706_run000_00000000_aruco_annotated.csv')
+	tags = find_tags_fast(aruco_df)
+	aruco_df_by_tag = sort_for_individual_tags(aruco_df, tags)
+	print_by_tag_data(tags, aruco_df_by_tag)
+	print('--------------------------------------------------\n\nStats by tags: \n')
+	display_bee_stats_table(tags, aruco_df_by_tag, 1800, 20)

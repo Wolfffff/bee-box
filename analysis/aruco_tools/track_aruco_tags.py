@@ -199,17 +199,15 @@ def aruco_annotate_specified_frames(video_path: str, frames_to_annotate: list, t
 	print(f'{identity_string} Loading video ...')
 	# frames_array = read_frames(video_path, frames_to_annotate)
 	vr = VideoReader(video_path, ctx = cpu(0))
-	with open(video_path, 'rb') as f:
-		vr = VideoReader(f, ctx = cpu(0))
-	frames_array = np.array(vr.get_batch(frames_to_annotate))
+	frames_array = vr.get_batch(frames_to_annotate).asnumpy()
 	end_loading = time.perf_counter()
 
 	print(f'{identity_string} Cropping ...')
 	results_df = pd.DataFrame(columns = ['Frame', 'Tag', 'cX','cY'])
-	end_cropping = time.perf_counter()
 
 	# Crop as specified
 	frames_array = frames_array[:, tl_coords[0]:tl_coords[0] + dimension, tl_coords[1]:tl_coords[1] + dimension, 0]
+	end_cropping = time.perf_counter()
 
 	print(f'{identity_string} Commencing ArUco tagging ...')
 	for i in range(frames_array.shape[0]):
@@ -275,7 +273,7 @@ def aruco_read_video_multithreaded(video_path: str, csv_output_path: str, tl_coo
 		print('\n\n')
 
 	combined_results_df = pd.concat(concat_list)
-	combined_results_df.reset_index(level=0, inplace=True)
+	combined_results_df.reset_index(level = 0, inplace=True)
 	combined_results_df.to_csv(csv_output_path, index=False)
 	print('Finished writing results, all concatenated!')
 	print(combined_results_df)
@@ -312,6 +310,6 @@ def annotate_video_with_aruco_csv_tags(video_path: str, output_video_path: str, 
 	writer.close()
 
 if __name__ == "__main__":
-	# aruco_annotate_video("d:\\20210629_run000_00000000.avi", "d:\\20210629_run000_00000000_aruco_annotated.avi", "d:\\20210629_run000_00000000_aruco_annotated.csv", (87, 870), 1800)
-	aruco_read_video_multithreaded("d:\\20210629_run000_00000000.avi", "d:\\20210629_run000_00000000_aruco_annotated.csv", (87, 870), 1800, range(0, 300), 50, 8)
-	# annotate_video_with_aruco_csv_tags("d:\\20210629_run000_00000000.avi", "d:\\20210629_run000_00000000_aruco_annotated.mp4", "d:\\20210629_run000_00000000_aruco_annotated.csv", (87, 870), 1800, range(0, 4))
+	aruco_annotate_video("d:\\20210706_run000_00000000.avi", "d:\\20210706_run000_00000000_aruco_annotated.avi", "d:\\20210706_run000_00000000_aruco_annotated.csv", (0, 0), 3647, False)
+	# aruco_read_video_multithreaded("d:\\20210706_run000_00000000.avi", "d:\\20210706_run000_00000000_aruco_annotated.csv", (0, 0), 3647, range(1800), 10, 3)
+	# annotate_video_with_aruco_csv_tags("d:\\20210706_run000_00000000.avi", "d:\\20210706_run000_00000000_aruco_annotated.avi", "d:\\20210706_run000_00000000_aruco_annotated.csv", (0, 0), 3647, range(1800))

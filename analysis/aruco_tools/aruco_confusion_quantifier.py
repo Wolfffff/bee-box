@@ -24,13 +24,13 @@ def create_confusion_matrix(aruco_csv_path: str, output_csv_path: str, checking_
 
 	for frame in range(np.min(aruco_df.index), np.max(aruco_df.index)):
 		window_iter = aruco_df.loc[frame:frame + checking_window].itertuples()
+		print(window_iter)
 
 		for row1 in window_iter:
 			for row2 in window_iter:
-				if row1.Tag != row2.Tag:
-					distance = float(np.sqrt(np.power(row1.cX - row2.cX, 2) + np.power(row1.cY - row2.cY, 2)))
-					if distance != 0:
-						confusion_matrix[index_dict[row1.Tag], index_dict[row2.Tag]] += 1. / distance
+				distance = float(np.sqrt(np.power(row2.cX - row1.cX, 2) + np.power(row2.cY - row1.cY, 2)))
+				if distance != 0 and row1.Tag != row2.Tag:
+					confusion_matrix[index_dict[row1.Tag], index_dict[row2.Tag]] += 1. / distance
 
 	np.savetxt(output_csv_path, confusion_matrix, delimiter = ',')
 	print(confusion_matrix)
@@ -42,4 +42,4 @@ def create_confusion_matrix(aruco_csv_path: str, output_csv_path: str, checking_
 	plt.grid()
 	plt.show()
 
-create_confusion_matrix('d:\\20210629_run000_00000000_aruco_annotated.csv', 'd:\\confusion_matrix.csv', 50)
+create_confusion_matrix('d:\\20210706_run000_00000000_aruco_annotated.csv', 'd:\\confusion_matrix.csv', 50)
