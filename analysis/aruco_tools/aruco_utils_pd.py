@@ -18,7 +18,7 @@ def load_into_pd_dataframe(ArUco_csv_path: str) -> pd.DataFrame:
 	print('\nLoaded csv file with following head: \n' + \
 			'---------------------------------------------- \n' + str(aruco_df.head()) + '\n')
 
-	aruco_df = aruco_df[['Frame', 'Tag', 'cX', 'cY']]
+	aruco_df = aruco_df[['Frame', 'Tag', 'cX', 'cY', 'Theta']]
 	aruco_df = aruco_df.set_index('Frame')
 	print('\nRemoved redundant column(s), set frames as index: \n' + \
 			'---------------------------------------------- \n' + str(aruco_df.head()) + '\n\n')
@@ -135,39 +135,20 @@ def reload_saved_dataframes(path: str) -> dict:
 	"""
 	return pickle.load(open(path, 'rb'))
 
+def threshold_remove_bad_tags(aruco_df: pd.DataFrame, total_frames: int, percent_threshold: float) -> pd.DataFrame:
+	tags = find_tags_fast(aruco_df)
+	aruco_dict_by_tag = sort_for_individual_tags(aruco_df, tags)
+	_, _, _, _, _, captured_percents = collect_all_bee_stats(tags, aruco_dict_by_tag, total_frames, 1)
 
-def find_nearest(array: np.array, value: int) -> float:
-	# Code taken from https://stackoverflow.com/questions/2566412/find-nearest-value-in-numpy-array
-	# Answer by Demitri.
+	print(f'\n\n--------------------------------------------------\n\nRemoving tags under the {percent_threshold}% detection rate threshold:\n')
+	for idx in range(len(tags)):
+		if captured_percents[idx] < percent_threshold:
+			aruco_df = aruco_df[aruco_df.Tag != tags[idx]]
+			print(f'Removed tag {tags[idx]}')
+	print('\n\n')
 
-	idx = np.searchsorted(array, value, side="left")
-	if idx > 0 and (idx == len(array) or math.fabs(value - array[idx-1]) < math.fabs(value - array[idx])):
-		return array[idx-1]
-	else:
-		return array[idx]
+	return aruco_df
 
-def pick_the_top_n(aruco_df_by_tag, tags, n): 
-	"""
-	This must be run with INTERPOLATED DATA -- no missing values allowed.
-	"""
-	data_counts = []
-	for tag in tags:
-		data_counts.append(len(aruco_df_by_tag[tag].index))
-
-	data_counts = pd.DataFrame(np.transpose(np.array([data_counts, tags])), columns = ['data count', 'tag'])
-	data_counts = data_counts.sort_values(by = ['data count'], ascending = False)
-
-	jump_score = np.zeros(len(data_counts.index), len(data_counts.index))
-	for j in range(len(data_counts.index)):
-		for k in range(j + 1, len(data_counts.index)):
-			total_distance = 0
-			for l in range(np.max(aruco_df_by_tag[j].index[0], aruco_df_by_tag[k].index[0]), np.min(aruco_df_by_tag[j].index[-1]), aruco_df_by_tag[j].index[-1]):
-				total_distance += np.sqrt(np.power(aruco_df_by_tag[k]['cX'][l] - aruco_df_by_tag[j]['cX'][l], 2) \
-				 + np.power(aruco_df_by_tag[k]['cY'][l] - aruco_df_by_tag[j]['cY'][l], 2))
-
-			jump_score[j, k] = total_distance
-
-	print(jump_score)
 
 def find_tag_path_with_gaps(aruco_dict_by_tag:dict, tag_number:int):
 	"""
@@ -193,7 +174,6 @@ def collect_all_bee_stats(tags, aruco_df_by_tag, total_frames, fps):
 	"""
 	
 	"""
-
 	longest_skips = []
 	g1s_skips = []
 	g10s_skips = []
@@ -214,11 +194,11 @@ def collect_all_bee_stats(tags, aruco_df_by_tag, total_frames, fps):
 
 	return tags, longest_skips, g1s_skips, g10s_skips, g100s_skips, captured_percents
 
-def display_bee_stats_table(aruco_array, video_path, total_frames, fps):
+def display_bee_stats_table(aruco_df: pd.DataFrame, aruco_dict_by_tag: dict, total_frames: int, fps: float):
 	"""
 	
 	"""
-	tags, longest_skips, g1s_skips, g10s_skips, g100s_skips, captured_percents = collect_all_bee_stats(aruco_array, video_path, total_frames, fps)
+	tags, longest_skips, g1s_skips, g10s_skips, g100s_skips, captured_percents = collect_all_bee_stats(aruco_df, aruco_dict_by_tag, total_frames, fps)
 
 	longest_skips = [str(j) for j in longest_skips]
 	longest_skips.insert(0, ' Longest gaps')
@@ -249,6 +229,9 @@ def print_by_tag_data(tags, aruco_df_by_tag):
 		print('\n' + '-' * 50)
 		print(aruco_df_by_tag[tag])
 
+def save_df(aruco_df: pd.DataFrame, filepath: str) -> None:
+	aruco_df.to_csv(filepath)
+
 
 
 if __name__ == "__main__":
@@ -257,4 +240,13 @@ if __name__ == "__main__":
 	aruco_df_by_tag = sort_for_individual_tags(aruco_df, tags)
 	print_by_tag_data(tags, aruco_df_by_tag)
 	print('--------------------------------------------------\n\nStats by tags: \n')
-	display_bee_stats_table(tags, aruco_df_by_tag, np.max(aruco_df.index) + 1, 20)
+	display_bee_stats_table(tags, aruco_df_by_tag, np.max(aruco_df.index), 20)
+
+	aruco_df = threshold_remove_bad_tags(aruco_df, np.max(aruco_df.index), 30.)
+
+	tags = np.sort(find_tags_fast(aruco_df))
+	aruco_df_by_tag = sort_for_individual_tags(aruco_df, tags)
+	# print_by_tag_data(tags, aruco_df_by_tag)
+	display_bee_stats_table(tags, aruco_df_by_tag, np.max(aruco_df.index), 20)
+
+	save_df(aruco_df, 'd:\\20210706_run000_00000000_aruco_annotated_30p_threshold.csv')

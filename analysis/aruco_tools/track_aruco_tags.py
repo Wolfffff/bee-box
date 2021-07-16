@@ -23,7 +23,7 @@ ARUCO_DICT = {
 	"DICT_5X5_100": cv2.aruco.DICT_5X5_100,
 }
 
-def aruco_annotate_video(video_path: str, video_output_path: str, csv_output_path: str, tl_coords: tuple[int,int], dimension: int, display_output_on_screen: bool = False, display_dim: tuple[int, int] = (800, 800)) -> None:
+def aruco_annotate_video(video_path: str, video_output_path: str, csv_output_path: str, tl_coords: tuple[int,int], dimension: int, annotate_video: bool = False, display_output_on_screen: bool = False, display_dim: tuple[int, int] = (800, 800)) -> None:
 	'''
 	Run ArUco on specified video frame by frame, output an avi annotated version and a csv with all of the relevant data.
 	'''
@@ -33,27 +33,41 @@ def aruco_annotate_video(video_path: str, video_output_path: str, csv_output_pat
 	arucoParams = cv2.aruco.DetectorParameters_create()
 
 	arucoParams.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
-	# arucoParams.adaptiveThreshWinSizeStep = 1
-	# arucoParams.adaptiveThreshWinSizeMin = 3
-	# arucoParams.adaptiveThreshWinSizeMax = 30
+	arucoParams.adaptiveThreshWinSizeStep = 3
+	arucoParams.adaptiveThreshWinSizeMin = 3
+	arucoParams.adaptiveThreshWinSizeMax = 30
 
-	# arucoParams.adaptiveThreshConstant = 12
+	arucoParams.adaptiveThreshConstant = 12
 
-	# dknapp constants
-	# arucoParams.maxMarkerPerimeterRate = 0.06
-	# arucoParams.minMarkerPerimeterRate = 0.03
-
-	#arucoParams.perspectiveRemoveIgnoredMarginPerCell = 0.13
+	arucoParams.perspectiveRemoveIgnoredMarginPerCell = 0.13
 
 	arucoParams.errorCorrectionRate = 1.
 
 	print("[INFO] starting video stream...")
 	vs = cv2.VideoCapture(video_path)
-	fps = vs.get(cv2.CAP_PROP_FPS)
+	
+	if annotate_video:
+		fps = vs.get(cv2.CAP_PROP_FPS)
 
-	out = cv2.VideoWriter(video_output_path, cv2.VideoWriter_fourcc('M','J','P','G'), fps, (dimension, dimension))
+		# Below code heavily based on SLEAP (sleap.io.videowriter.py)
+		fps = str(fps)
+		crf = 21
+		preset = 'superfast'
+		writer = skvideo.io.FFmpegWriter(
+					video_output_path,
+					inputdict={
+						"-r": fps,
+					},
+					outputdict={
+						"-c:v": "libx264",
+						"-preset": preset,
+						"-framerate": fps,
+						"-crf": str(crf),
+						"-pix_fmt": "yuv420p",
+					}, #verbosity = 1
+				)
 
-	results_df = pd.DataFrame(columns = ['Frame', 'Tag', 'cX','cY'])
+	results_df = pd.DataFrame(columns = ['Frame', 'Tag', 'cX','cY', 'Theta'])
 
 	# loop over the frames from the video stream
 
@@ -101,15 +115,20 @@ def aruco_annotate_video(video_path: str, video_output_path: str, csv_output_pat
 				cX = (topLeft[0] + bottomRight[0]) / 2.0
 				cY = (topLeft[1] + bottomRight[1]) / 2.0
 
-				# 'Frame', 'Tag', 'cX','cY'
-				results_df.loc[len(results_df)] = [int(i), int(markerID[0]), cX, cY]
+				Theta = np.arctan2(topRight[1] - bottomLeft[1], topRight[0] - bottomLeft[0])
 
-				frame = cv2.circle(frame, (int(round(cX)), int(round(cY))), 50, (255, 0, 0), 2)
-				cv2.putText(frame, str(int(markerID[0])), (int(round(cX)), int(round(cY)) - 50), font, 2, (255, 0, 0), 2)
+				# 'Frame', 'Tag', 'cX','cY', 'Theta'
+				results_df.loc[len(results_df)] = [int(i), int(markerID[0]), cX, cY, Theta]
+
+				if annotate_video:
+					frame = cv2.circle(frame, (int(round(cX)), int(round(cY))), 100, (255, 0, 0), 2)
+					frame = cv2.line(frame, (int(round(cX - 50 * np.cos(Theta))), int(round(cY - 50 * np.sin(Theta)))), (int(round(cX + 150 * np.cos(Theta))), int(round(cY  + 150 * np.sin(Theta)))), (255, 0, 0), 2)
+					cv2.putText(frame, str(int(markerID[0])), (int(round(cX)), int(round(cY)) - 100), font, 2, (255, 0, 0), 2)
 
 		i = i + 1
 
-		out.write(frame)
+		if annotate_video:
+			writer.writeFrame(frame)
 		
 		if display_output_on_screen:
 			frame = cv2.resize(frame, display_dim)
@@ -131,7 +150,7 @@ def aruco_annotate_video(video_path: str, video_output_path: str, csv_output_pat
 
 	# Do a bit of cleanup
 	vs.release()
-	out.release()
+	writer.close()
 	cv2.destroyAllWindows()
 
 	csv_aruco_df = awpd.load_into_pd_dataframe(csv_output_path)
@@ -310,6 +329,6 @@ def annotate_video_with_aruco_csv_tags(video_path: str, output_video_path: str, 
 	writer.close()
 
 if __name__ == "__main__":
-	aruco_annotate_video("d:\\20210706_run000_00000000.avi", "d:\\20210706_run000_00000000_aruco_annotated.avi", "d:\\20210706_run000_00000000_aruco_annotated.csv", (0, 0), 3647, False)
-	# aruco_read_video_multithreaded("d:\\20210706_run000_00000000.avi", "d:\\20210706_run000_00000000_aruco_annotated.csv", (0, 0), 3647, range(1800), 10, 3)
-	# annotate_video_with_aruco_csv_tags("d:\\20210706_run000_00000000.avi", "d:\\20210706_run000_00000000_aruco_annotated.avi", "d:\\20210706_run000_00000000_aruco_annotated.csv", (0, 0), 3647, range(1800))
+	aruco_annotate_video("d:\\20210713_run001_00000000_cut.mp4", "d:\\220210713_run001_00000000_cut_aruco_annotated.mp4", "d:\\20210713_run001_00000000_cut_aruco_annotated.csv", (0, 0), 3648, annotate_video = True, display_output_on_screen = False)
+	# aruco_read_video_multithreaded("d:\\20210706_run000_00000000.avi", "d:\\20210706_run000_00000000_aruco_annotated.csv", (0, 0), 3648, range(1800), 10, 3)
+	# annotate_video_with_aruco_csv_tags("d:\\20210706_run000_00000000.avi", "d:\\20210706_run000_00000000_aruco_annotated.avi", "d:\\20210706_run000_00000000_aruco_annotated.csv", (0, 0), 3648, range(1800))
