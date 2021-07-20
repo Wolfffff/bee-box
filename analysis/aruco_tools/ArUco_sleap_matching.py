@@ -496,6 +496,13 @@ def sleap_reader(slp_predictions_path: str) -> h5py.File:
 
 # 	print(tabulate(associated_tracks_matrix, tablefmt = 'pretty'))
 
+def sigmoid(input_value: float, center: float, slope: float):
+	'''
+	sigmoid = 1 / (1 + exp[-slope * {input - centur}])
+	'''
+	return 1 / (1. + np.exp(-slope * (input_value - center)))
+
+
 def rolling_hungarian_matching(cleaned_aruco_csv_path: str, slp_predictions_path: str, rolling_window_size: int, enhanced_ouput: bool = False) -> list:
 	aruco_df = awpd.load_into_pd_dataframe(cleaned_aruco_csv_path)
 	tags = np.sort(awpd.find_tags_fast(aruco_df))
@@ -597,13 +604,11 @@ def rolling_hungarian_matching(cleaned_aruco_csv_path: str, slp_predictions_path
 		# Initialize
 		this_window_cost_matrix = np.zeros((len(unique_tracks), len(tags)))
 		temp_cost_matrix = np.zeros((len(unique_tracks), len(tags)))
-		track_detections = np.zeros(len(unique_tracks))
-		tag_detections = np.zeros(len(tags))
+		detection_count_matrix = np.zeros((len(unique_tracks), len(tags)))
 
 		last_iter_frame = -1
 		for row in rolling_window.itertuples():
 			iter_frame = row.Index
-			tag_detections[tags_indices[row.Tag]] += 1
 			
 			if iter_frame != last_iter_frame:
 				# We want to add the current frame to the dict of individual frame cost matrices
@@ -627,8 +632,9 @@ def rolling_hungarian_matching(cleaned_aruco_csv_path: str, slp_predictions_path
 
 					instance_number = int(instance[4])
 					if instance_number != -1:
-						temp_cost_matrix[tracks_indices[instance_number], tags_indices[int(row.Tag)]] += distance
-						track_detections[tracks_indices[instance_number]] += 1
+						temp_cost_matrix[tracks_indices[instance_number], tags_indices[int(row.Tag)]] += sigmoid(distance, 150., 1.)
+						detection_count_matrix[tracks_indices[instance_number], tags_indices[int(row.Tag)]] += 1
+						
 
 			# Keep frame cost matrices in a dict for easy access by frame
 			frame_costs_dict[iter_frame] = temp_cost_matrix
@@ -649,67 +655,71 @@ def rolling_hungarian_matching(cleaned_aruco_csv_path: str, slp_predictions_path
 		while i < len(for_hungarian):
 			if np.sum(for_hungarian[i]) == 0:
 				for_hungarian = np.delete(for_hungarian, i, 0)
+				detection_count_matrix = np.delete(detection_count_matrix, i, 0)
 				trimmed_tracks = np.delete(trimmed_tracks, i)
 			else:
 				i += 1
 		i = 0
 		for_hungarian = np.transpose(for_hungarian)
+		detection_count_matrix = np.transpose(detection_count_matrix)
 		trimmed_tags = np.copy(tags)
 		# Eliminate zero-detection columns
 		while i < len(for_hungarian):
 			if np.sum(for_hungarian[i]) == 0:
 				for_hungarian = np.delete(for_hungarian, i, 0)
+				detection_count_matrix = np.delete(detection_count_matrix, i, 0)
 				trimmed_tags = np.delete(trimmed_tags, i)
 			else:
 				i += 1
 
 
-		# Weight tags by detections
-		print(tag_detections)
-		for j in range(len(for_hungarian)):
-			if tag_detections[j] > 0:
-				for_hungarian[j] *= (tag_detections[j] / float(rolling_window_size))
-
-		# Transpose for the next operations, just because it's easier that way!
-		for_hungarian = np.transpose(for_hungarian)
-
-		# Weight tracks by detections
-		for j in range(len(for_hungarian)):
-			if track_detections[j] > 0:
-				for_hungarian[j] *= (track_detections[j] / float(rolling_window_size))
+		# Weight entries
+		for row_idx in range(len(for_hungarian)):
+			row = for_hungarian[row_idx]
+			for col_idx in range(len(row)):
+				if detection_count_matrix[row_idx, col_idx] > 0:
+					for_hungarian[row_idx, col_idx] = float(for_hungarian[row_idx, col_idx] * rolling_window_size) / detection_count_matrix[row_idx, col_idx]
 
 		# Normalize
-		for_hungarian = np.transpose(for_hungarian)
-		for j in range(len(for_hungarian)):
-			row_max = np.max(for_hungarian[j])
-			for k in range(len(for_hungarian[j])):
-				for_hungarian[j, k] = for_hungarian[j, k] * 100. / row_max
-		for_hungarian = np.transpose(for_hungarian)
-		
+		for_hungarian = 100. * for_hungarian / np.max(for_hungarian.flatten())
 
-		# Disallow zero columns
 		for row_idx in range(len(for_hungarian)):
-			if 0 in for_hungarian[row_idx]:
-				for col_idx in range(len(for_hungarian[row_idx])):
+			row = for_hungarian[row_idx]
+			for col_idx in range(len(row)):
+				if detection_count_matrix[row_idx, col_idx] == 0:
 					for_hungarian[row_idx, col_idx] = 999.
-
-
-		for_hungarian = np.transpose(for_hungarian)
 		
 
 		print('\n\nPrevious cost matrix (processed, rounded to nearest integer, transposed for display purposes):')
 		display_matrix = np.transpose(np.vstack([trimmed_tags, np.transpose(for_hungarian)]))
 		print(tabulate(display_matrix.astype(int), tablefmt = 'pretty', headers = trimmed_tracks))
-		hungarian_result = m.compute(for_hungarian)
+		detection_count_matrix = np.transpose(np.vstack([trimmed_tags, np.transpose(detection_count_matrix)]))
+		print(tabulate(detection_count_matrix.astype(int), tablefmt = 'pretty', headers = trimmed_tracks))
+		hungarian_result = m.compute(np.copy(for_hungarian))
 		print('Current frame:               ', current_frame)
-		print('Chosen pairs:               ', hungarian_result)
+		print('Chosen pairs:                ', hungarian_result)
 		hungarian_pairs = []
 		for tag, track in hungarian_result:
 			hungarian_pairs.append((trimmed_tags[tag], trimmed_tracks[track]))
-		print('Inferred tag - track pairs: ', hungarian_pairs)
+		print('Inferred tag - track pairs:  ', hungarian_pairs)
 
+		# Dictionary of the indices of tags
+		trimmed_tags_indices = {}
+		for idx in range(len(trimmed_tags)):
+			trimmed_tags_indices[trimmed_tags[idx]] = idx
+
+		# Dictionary of the indices of tracks
+		trimmed_tracks_indices = {}
+		for idx in range(len(trimmed_tracks)):
+			trimmed_tracks_indices[trimmed_tracks[idx]] = idx
+
+		# Assignment threshold
+		assigned = []
 		for tag, track in hungarian_pairs:
-			tag_tracks_2d_array[tags_indices[tag], current_frame] = track
+			if for_hungarian[trimmed_tags_indices[tag], trimmed_tracks_indices[track]] < 10:
+				assigned.append(tag)
+				tag_tracks_2d_array[tags_indices[tag], current_frame] = track
+		print('Tags with new assignments:   ', assigned)
 
 		idx = 0
 
@@ -937,10 +947,16 @@ def hungarian_annotate_video_sleap_aruco_pairings(video_path: str, video_output_
 if __name__ == '__main__':
 	# pairings = proximity_matching('d:\\sleap-tigergpu\\20210506_12h_Tracked_DefaultArUcoParams.csv', 'd:\\20210505_run003_00000000.mp4.predictions.slp', 50)
 	# pairings = hungarian_matching('d:\\sleap-tigergpu\\20210506_12h_Tracked_DefaultArUcoParams.csv', 'd:\\20210505_run003_00000000.mp4.predictions.slp')
-	pairings = rolling_hungarian_matching('d:\\20210706_run000_00000000_aruco_annotated.csv', 'd:\\sleap-tigergpu\\high-res.slp', 50, enhanced_ouput = False)
-	np.savetxt("aruco_sleap_matching_output.csv", pairings, delimiter = ",")
-	# pairings = np.genfromtxt('aruco_sleap_matching_output.csv', delimiter = ',')
-	hungarian_annotate_video_sleap_aruco_pairings('d:\\20210706_run000_00000000.avi', 'd:\\sleap-tigergpu\\matching_test_high_res.mp4', 'd:\\20210706_run000_00000000_aruco_annotated.csv', 'd:\\sleap-tigergpu\\high-res.slp', pairings, range(0, 1200), (0, 0), 3647, display_output_on_screen = True)
+	# pairings = rolling_hungarian_matching('d:\\20210706_run000_00000000_aruco_annotated.csv', 'd:\\sleap-tigergpu\\high-res.slp', 3, enhanced_ouput = False)
+	# np.savetxt("aruco_sleap_matching_output.csv", pairings, delimiter = ",")
+	# pairings = np.genfromtxt('aruco_sleap_matching_output_merged.csv', delimiter = ',')
+	# hungarian_annotate_video_sleap_aruco_pairings('d:\\20210706_run000_00000000.avi', 'd:\\sleap-tigergpu\\matching_test_high_res_3_window_merged.mp4', 'd:\\20210706_run000_00000000_aruco_annotated.csv', 'd:\\sleap-tigergpu\\high-res.slp', pairings, range(0, 1200), (0, 0), 3647, display_output_on_screen = True)
+
+	# pairings = rolling_hungarian_matching('d:\\20210715_run001_00000000_cut_aruco_annotated.csv', 'd:\\20210715_run001_00000000_cut.mp4.predictions.slp', 3, enhanced_ouput = False)
+	# np.savetxt("aruco_sleap_matching_output.csv", pairings, delimiter = ",")
+
+	# pairings = np.genfromtxt('aruco_sleap_matching_output_merged.csv', delimiter = ',')
+	# hungarian_annotate_video_sleap_aruco_pairings('d:\\20210715_run001_00000000_cut.mp4', 'd:\\20210715_matching_test_high_res_3_window_merged.mp4', 'd:\\20210715_run001_00000000_cut_aruco_annotated.csv', 'd:\\20210715_run001_00000000_cut.mp4.predictions.slp', pairings, range(0, 40), (0, 0), 3647, display_output_on_screen = True)
 
 
 	# results_df = ArUco_cleaner('d:\\sleap-tigergpu\\20210505_run003_00000000.mp4', range(0, 24000), (0, 0), 2063, 16)

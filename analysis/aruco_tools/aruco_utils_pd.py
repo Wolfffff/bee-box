@@ -18,7 +18,7 @@ def load_into_pd_dataframe(ArUco_csv_path: str) -> pd.DataFrame:
 	print('\nLoaded csv file with following head: \n' + \
 			'---------------------------------------------- \n' + str(aruco_df.head()) + '\n')
 
-	aruco_df = aruco_df[['Frame', 'Tag', 'cX', 'cY', 'Theta']]
+	aruco_df = aruco_df.reindex(columns = ['Frame', 'Tag', 'cX', 'cY', 'Theta'])
 	aruco_df = aruco_df.set_index('Frame')
 	print('\nRemoved redundant column(s), set frames as index: \n' + \
 			'---------------------------------------------- \n' + str(aruco_df.head()) + '\n\n')
@@ -146,6 +146,7 @@ def threshold_remove_bad_tags(aruco_df: pd.DataFrame, total_frames: int, percent
 			aruco_df = aruco_df[aruco_df.Tag != tags[idx]]
 			print(f'Removed tag {tags[idx]}')
 	print('\n\n')
+	aruco_df.index.name = 'Frame'
 
 	return aruco_df
 
