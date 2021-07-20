@@ -41,8 +41,8 @@ import numpy as np
 import pandas as pd
 import time
 import h5py
+import threading
 from datetime import datetime
-from threading import Thread
 from contextlib import redirect_stdout
 from tabulate import tabulate
 from munkres import Munkres
@@ -57,8 +57,6 @@ def threaded_aruco_annotate_video(video_path: str, video_output_path: str, csv_o
 		"DICT_5X5_50": cv2.aruco.DICT_5X5_50,
 		"DICT_5X5_100": cv2.aruco.DICT_5X5_100,
 	}
-
-	video_getter = VideoGet(video_path, start_end_frames[0]).start()
 
 	tagset_name = "DICT_4X4_50"
 	print("[INFO] detecting '{}' tags...".format(tagset_name))
@@ -119,16 +117,18 @@ def threaded_aruco_annotate_video(video_path: str, video_output_path: str, csv_o
 	i = start_end_frames[0]
 	detected = 0
 
-	while not video_getter.stopped:
-		frame = video_getter.frame
+	vs = VideoCaptureThreading(video_path)
+	vs.start()
+	success = True
+	while success:
+		success, frame = vs.read()
 		
 		# Setting dimension to a negative number disables cropping functionality
 		if dimension > 0:
 			frame = frame[tlx:tlx + dimension, tly:tly + dimension]
 
 		# detect ArUco markers in the input frame
-		(corners, ids, rejected) = cv2.aruco.detectMarkers(
-			frame, arucoDict, parameters=arucoParams)
+		(corners, ids, rejected) = cv2.aruco.detectMarkers(frame, arucoDict, parameters=arucoParams)
 
 		detected += len(corners)
 		if len(corners) > 0:
@@ -165,7 +165,7 @@ def threaded_aruco_annotate_video(video_path: str, video_output_path: str, csv_o
 			cv2.imshow('current frame', frame)
 			cv2.waitKey(1)
 
-		print("Frame Number: " +  str(i) + ', Total Detected Tags: ' + str(detected))
+		print("Frame Number: " + str(i) + ', Total Detected Tags: ' + str(detected))
 
 		if i == start_end_frames[1]:
 			break
@@ -185,7 +185,7 @@ def threaded_aruco_annotate_video(video_path: str, video_output_path: str, csv_o
 	if annotate_video:
 		writer.close()
 	cv2.destroyAllWindows()
-	video_getter.stop()
+	vs.stop()
 
 
 def sleap_reader(slp_predictions_path: str) -> h5py.File:
@@ -767,37 +767,55 @@ def hungarian_annotate_video_sleap_aruco_pairings(video_path: str, video_output_
 	cv2.destroyAllWindows()
 
 
-class VideoGet:
-	"""
-	Class that continuously gets frames from a VideoCapture object
-	with a dedicated thread.
-	"""
+# Code stolen from: https://github.com/gilbertfrancois/video-capture-async
+class VideoCaptureThreading:
+	def __init__(self, video_path):
+		self.src = video_path
+		self.cap = cv2.VideoCapture(self.src)
+		self.grabbed, self.frame = self.cap.read()
+		self.started = False
+		self.read_lock = threading.Lock()
+		self.recent_read = False
 
-	def __init__(self, video_path: str, start_frame: int):
-		self.stream = cv2.VideoCapture(video_path)
-		self.stream.set(1, start_frame)
-		(self.grabbed, self.frame) = self.stream.read()
-		self.stopped = False
+	def set(self, var1, var2):
+		self.cap.set(var1, var2)
 
-	def start(self):    
-		Thread(target=self.get, args=()).start()
+	def start(self):
+		if self.started:
+			print('[!] Threaded video capturing has already been started.')
+			return None
+		self.started = True
+		self.thread = threading.Thread(target=self.update, args=())
+		self.thread.start()
 		return self
 
-	def get(self):
-		while not self.stopped:
-			if not self.grabbed:
-				self.stop()
-			else:
-				(self.grabbed, self.frame) = self.stream.read()
+	def update(self):
+		while self.started:
+			if self.recent_read == False:
+				grabbed, frame = self.cap.read()
+				with self.read_lock:
+					self.grabbed = grabbed
+					self.frame = frame
+				self.recent_read = True
+
+	def read(self):
+		with self.read_lock:
+			frame = self.frame.copy()
+			grabbed = self.grabbed
+			self.recent_read = False
+		return grabbed, frame
 
 	def stop(self):
-		self.stopped = True
+		self.started = False
+		self.thread.join()
+
+	def __exit__(self, exec_type, exc_value, traceback):
+		self.cap.release()
 
 
 
 
 if __name__ == '__main__':
-
 	# SLEAP data is necessary before running this pipeline; ArUco data will be generated here.
 	# We also need the python file aruco_utils_pd.py in the same folder.
 	# Video is also assumed to be cropped, since all recent data has been pre-cropped.
