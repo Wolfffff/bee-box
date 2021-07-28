@@ -57,7 +57,7 @@ def sleap_reader(slp_predictions_path: str) -> h5py.File:
 def ArUco_SLEAP_matching_wrapper(p):
 	return ArUco_SLEAP_matching(*p)
 
-def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, results_df_path: str, start_end_frame: tuple[int, int], minimum_sleap_score: float = 0.1, crop_size: int = 50, half_rolling_window_size: int = 50, enhanced_output: bool = False, display_images_cv2: bool = False) -> np.ndarray:
+def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_frame: tuple[int, int], minimum_sleap_score: float = 0.1, crop_size: int = 50, half_rolling_window_size: int = 50, enhanced_output: bool = False, display_images_cv2: bool = False) -> np.ndarray:
 	'''
 	Args:
 		video_path: path to bee video file.
@@ -237,10 +237,8 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, results_df_
 		print(f'Frame {previous_frame}: {detections} tag(s)')
 
 	# Instantiate a results dataframe and save it!
-	print(f'Writing results of SLEAP-cropped ArUco as csv to {os.path.abspath(results_df_path)}')
 	results_df = pd.DataFrame(results_array, columns = ['Frame', 'Track', 'Tag', 'cX','cY', 'Theta'])
 	results_df = results_df.astype({'Frame': int, 'Track': int, 'Tag': int, 'cX': np.float64,'cY': np.float64, 'Theta': np.float64})
-	results_df.to_csv(results_df_path, index = False)
 
 	ScA_end = time.perf_counter()
 	print(f'[SLEAP-cropped ArUco] Ended, FPS: {round(float(start_end_frame[1] - start_end_frame[0] + 1) / float(ScA_end - ScA_start), 2)}')
@@ -344,7 +342,9 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, results_df_
 		for tag, track in hungarian_pairs:
 			# indexing is a bit messy for this array so we make things easier with np.searchsorted.
 			# Not optimal, but much more robust and much more readable than stuffing a ton of arithmetic into the index
-			tag_tracks_2d_array[1 + tag_indices[tag], np.searchsorted(tag_tracks_2d_array[0, :], center_of_window_frame)] = track
+			# We also only want to assign if there's an actual nonzero cost associated... otherwise, this is just a 'filler' pairing from the Hungarian algorithm
+			if cost_matrix[tag_indices[tag], track_indices[track]] != 0:
+				tag_tracks_2d_array[1 + tag_indices[tag], np.searchsorted(tag_tracks_2d_array[0, :], center_of_window_frame)] = track
 
 		if enhanced_output:
 			display_matrix = np.copy(np.transpose(cost_matrix.astype(int).astype(str)))
@@ -427,7 +427,7 @@ def annotate_video_sleap_aruco_pairings(video_path: str, video_output_path: str,
 	current_frame_idx = 0
 	next_frame_idx = 0
 	errors = 0
-	for frame in awpd.progressBar(frames_to_annotate):
+	for frame in awpd.progressBar(frames_to_annotate, fill = 'X'):
 		video_data.set(1, frame)
 		success, image = video_data.read()
 		# Find starting point in .slp instances data
@@ -472,9 +472,12 @@ def annotate_video_sleap_aruco_pairings(video_path: str, video_output_path: str,
 		# Persistent ArUco location plot
 		if frame in aruco_df.index:
 			for row in aruco_df[aruco_df.index == frame].itertuples():
-				last_seen[0, np.searchsorted(tags, row.Tag)] = int(round(row.cX))
-				last_seen[1, np.searchsorted(tags, row.Tag)] = int(round(row.cY))
-				last_seen[2, np.searchsorted(tags, row.Tag)] = float(row.Theta)
+				try:
+					last_seen[0, np.searchsorted(tags, row.Tag)] = int(round(row.cX))
+					last_seen[1, np.searchsorted(tags, row.Tag)] = int(round(row.cY))
+					last_seen[2, np.searchsorted(tags, row.Tag)] = float(row.Theta)
+				except:
+					pass
 
 		for k in range(0,len(tags)):
 			if last_seen[0, k] > 0 and last_seen[1, k] > 0:
@@ -536,7 +539,9 @@ if __name__ == '__main__':
 
 	display_images_cv2 = False			# If set to true, displays cropped images.  Useful for judging crop_size.  Only for local running, and never for actual large batches of data processing.
 
-	redirect_to_txt = False 			# Since the console is not the best for looking through tons of info, redirect to text file for later reference.
+	redirect_to_txt = False				# Since the console is not the best for looking through tons of info, redirect to text file for later reference.
+
+
 	
 	# Better numpy printing
 	np.set_printoptions(edgeitems = 30, linewidth = 100000, formatter = dict(float = lambda x: "%.3g" % x))
@@ -545,7 +550,7 @@ if __name__ == '__main__':
 		# Redirect mountains of console output to a .txt file
 		# TODO: documentation on strategies to sift through the console output.
 		f = open(files_folder_path + '/' + name_stem + '_console_output.txt', 'w')
-		redirect_stdout(f)
+		sys.stdout = f
 
 	# ArUco and SLEAP matching with a rolling window Hungarian matching system
 
@@ -629,19 +634,13 @@ if __name__ == '__main__':
 
 	# If single-threaded
 	else:
-		pairings = ArUco_SLEAP_matching(video_path, slp_file_path, ArUco_csv_path, (start_here_frame, end_here_frame), minimum_sleap_score, crop_size, half_rolling_window_size, enhanced_output, display_images_cv2)
+		pairings = ArUco_SLEAP_matching(video_path, slp_file_path, (start_here_frame, end_here_frame), minimum_sleap_score, crop_size, half_rolling_window_size, enhanced_output, display_images_cv2)
 		if enhanced_output:
 			print(np.transpose(pairings))
 
 	# Save matching results as a CSV
 	matching_results_path = files_folder_path + '/' + name_stem + '_matching_result.csv'
 	np.savetxt(matching_results_path, np.copy(pairings), delimiter = ',')
-
-	# We're done with actual data processing!  Yay!
-	# Now, we're left with the optional process of annotating the video with our pairings.
-	if annotate_video:
-		annotate_video_sleap_aruco_pairings(video_path, files_folder_path + '/' + name_stem + '_annotated.mp4', ArUco_csv_path, slp_file_path, pairings, range(start_here_frame, end_here_frame))
-
 
 	# Generate dataframe coordinates output
 	# Frame, Tag, TagX, TagY
@@ -679,9 +678,14 @@ if __name__ == '__main__':
 					if enhanced_output:
 						print(current_tag)
 	
-	output_df = pd.DataFrame(output_data, columns = ['Frame', 'Tag', 'TagX', 'TagY'])
+	output_df = pd.DataFrame(output_data, columns = ['Frame', 'Tag', 'cX', 'cY'])
 	print(output_df)
-	output_df.to_csv(files_folder_path + '/' + name_stem + '_tag_coords.csv', index=False)
+	output_df.to_csv(ArUco_csv_path, index=False)
+
+	# We're done with actual data processing!  Yay!
+	# Now, we're left with the optional process of annotating the video with our pairings.
+	if annotate_video:
+		annotate_video_sleap_aruco_pairings(video_path, files_folder_path + '/' + name_stem + '_annotated.mp4', ArUco_csv_path, slp_file_path, pairings, range(start_here_frame, end_here_frame))
 	
 
 # python matching_pipeline.py d:\\20210715_run001_00000000_cut.mp4 d:\\20210725_preds_1200frames.slp d:/matching_testing crop_ArUco_testing False 0 300 True
