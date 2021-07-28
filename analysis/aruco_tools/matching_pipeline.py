@@ -427,8 +427,10 @@ def annotate_video_sleap_aruco_pairings(video_path: str, video_output_path: str,
 	current_frame_idx = 0
 	next_frame_idx = 0
 	errors = 0
+	previous_frame = frames_to_annotate[0]
 	for frame in awpd.progressBar(frames_to_annotate, fill = 'X'):
-		video_data.set(1, frame)
+		if frame != previous_frame + 1:
+			video_data.set(1, frame)
 		success, image = video_data.read()
 		# Find starting point in .slp instances data
 		nth_inst_tuple = sleap_instances[current_frame_idx]
@@ -493,6 +495,7 @@ def annotate_video_sleap_aruco_pairings(video_path: str, video_output_path: str,
 		# cv2.waitKey(1)
 
 		current_frame_idx = next_frame_idx
+		previous_frame = frame
 
 	# Do a bit of cleanup
 	video_data.release()
