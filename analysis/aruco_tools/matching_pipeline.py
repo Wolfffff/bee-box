@@ -455,11 +455,15 @@ def annotate_video_sleap_aruco_pairings(video_path: str, video_output_path: str,
 				pY = int(round(prediction_tuple[1]))
 				image = cv2.circle(image, (pX, pY), 75, (255, 0, 0), 2)
 				current_track = int(nth_inst_tuple[4])
+				pairings_frame_idx = np.searchsorted(pairings[0, 1 : -1], frame)
 				current_tag = '?'
-				for pair in pairings:
-					if pair[1] == current_track:
-						current_tag = pair[0]
-				cv2.putText(image, str(int(current_tag)), (pX, pY - 75), font, 4, (255, 0, 0), 2)
+				idx = 0
+				for entry in pairings[:, frame]:
+					if entry == current_track:
+						current_tag = pairings[idx, 0]
+					idx += 1
+
+				cv2.putText(image, str(current_tag), (pX, pY - 75), font, 4, (255, 0, 0), 2)
 				cv2.putText(image, str(int(current_track)), (pX, pY + 100), font, 2, (255, 0, 0), 2)
 			except:
 				# print(f'Failure on frame {frame}')
@@ -538,8 +542,8 @@ if __name__ == '__main__':
 	np.set_printoptions(edgeitems = 30, linewidth = 100000, formatter = dict(float = lambda x: "%.3g" % x))
 
 	if redirect_to_txt:
-		Redirect mountains of console output to a .txt file
-		TODO: documentation on strategies to sift through the console output.
+		# Redirect mountains of console output to a .txt file
+		# TODO: documentation on strategies to sift through the console output.
 		f = open(files_folder_path + '/' + name_stem + '_console_output.txt', 'w')
 		redirect_stdout(f)
 
