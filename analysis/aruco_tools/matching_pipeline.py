@@ -571,6 +571,7 @@ if __name__ == '__main__':
 		# Start the parallel tasks!
 		start = time.perf_counter()
 		with concurrent.futures.ThreadPoolExecutor() as executor:
+			print('Tasks now in queue...')
 			results_generator = executor.map(ArUco_SLEAP_matching_wrapper, chunks_to_assign)
 		end = time.perf_counter()
 		print(f'[Multiprocessing SLEAP-cropped ArUco] Ended, Effective overall FPS: {round(float(end_here_frame - start_here_frame + 1) / float(end - start), 2)}')
@@ -596,8 +597,9 @@ if __name__ == '__main__':
 		for idx in range(number_of_cpus):
 			for tag in all_unique_tags:
 				if not (tag in results[idx][1 : -1, 0]):
-					insert_idx = np.searchsorted(results[idx][1 : -1, 0], tag, side = 'right')
+					insert_idx = np.searchsorted(results[idx][1 : -1, 0], tag, side = 'left')
 					results[idx] = np.insert(results[idx], insert_idx, np.zeros(results[idx].shape[1]), axis = 0)
+					results[idx][insert_idx, 0] = tag
 
 					if enhanced_output:
 						print(f'Added empty row for tag {tag}')
@@ -606,31 +608,19 @@ if __name__ == '__main__':
 				print(results[idx])
 
 		# Horizontally stack up the results
-		overall_result = results[0]
-		for idx in range(1, len(results) - 1):
-			overall_result = np.hstack((overall_result, results[idx][:, 1 : -1]))
+		pre_stack_results = []
+		for idx in range(len(results)):
+			pre_stack_results.append(results[idx][:, 1 : -1])
 			if enhanced_output:
-				print(np.transpose(overall_result))
-		overall_result[1 : -1, 0] = all_unique_tags
+				print(np.transpose(pre_stack_results[idx]))
+		overall_result = np.hstack(pre_stack_results)
+		if enhanced_output:
+			print('\n\nStacked multiprocessing results:\n')
+			print(np.transpose(overall_result))
 
 		np.savetxt('test.csv', overall_result, delimiter = ',')
 
-		tags = np.sort(np.unique(overall_result[1 : -1, 0]))
-		tracks = np.setdiff1d(np.sort(np.unique(overall_result[1 : -1, 1: -1])), [0])
-
-		tag_tracks_2d_array = np.zeros((1 + len(tags), end_here_frame - start_here_frame - (2 * half_rolling_window_size) + 1))
-		# Add a column of labels to show which tags are associated to which rows.  This isn't necessary at all on the programming side, but it GREATLY enhances readability for humans trying to debug.
-		tag_tracks_2d_array[:, 0] = np.concatenate(([0], tags))
-		# Column headers denoting frame numbers.  Same deal as above, although the program does use this, mostly out of convenience.  If it's there for human convenience, we might as well use it when convenient for the program too!
-		tag_tracks_2d_array[0, :] = np.concatenate(([start_here_frame - 1], np.arange(start_here_frame + half_rolling_window_size + 1, end_here_frame - half_rolling_window_size + 1)))
-
-		tag_indices = {}
-		for idx in range(len(tags)):
-			tag_indices[int(tags[idx])] = idx
-
-		pairings = tag_tracks_2d_array.astype(int)
-		if enhanced_output:
-			print(np.transpose(pairings))
+		pairings = overall_result
 
 	else:
 		pairings = ArUco_SLEAP_matching(video_path, slp_file_path, ArUco_csv_path, (start_here_frame, end_here_frame), minimum_sleap_score, crop_size, half_rolling_window_size, enhanced_output, display_images_cv2)
