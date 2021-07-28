@@ -581,7 +581,7 @@ if __name__ == '__main__':
 		# Put together a list of parameter tuples to pass into the parallel instances
 		chunks_to_assign = []
 		for chunk in assignment_tuples:
-			chunks_to_assign.append((video_path, slp_file_path, ArUco_csv_path, chunk, minimum_sleap_score, crop_size, half_rolling_window_size, False, False))
+			chunks_to_assign.append((video_path, slp_file_path, chunk, minimum_sleap_score, crop_size, half_rolling_window_size, False, False))
 
 		# Start the parallel tasks!
 		start = time.perf_counter()
