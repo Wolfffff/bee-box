@@ -531,14 +531,17 @@ if __name__ == '__main__':
 	enhanced_output = True 				# If set to true, this function will spit out a ton of console output useful for debugging.  Best to pipe to a .txt file and carefully read through as necessary.
 
 	display_images_cv2 = False			# If set to true, displays cropped images.  Useful for judging crop_size.  Only for local running, and never for actual large batches of data processing.
+
+	redirect_to_txt = False 			# Since the console is not the best for looking through tons of info, redirect to text file for later reference.
 	
 	# Better numpy printing
 	np.set_printoptions(edgeitems = 30, linewidth = 100000, formatter = dict(float = lambda x: "%.3g" % x))
 
-	# Redirect mountains of console output to a .txt file
-	# TODO: documentation on strategies to sift through the console output.
-	# f = open(files_folder_path + '/' + name_stem + '_console_output.txt', 'w')
-	# redirect_stdout(f)
+	if redirect_to_txt:
+		Redirect mountains of console output to a .txt file
+		TODO: documentation on strategies to sift through the console output.
+		f = open(files_folder_path + '/' + name_stem + '_console_output.txt', 'w')
+		redirect_stdout(f)
 
 	# ArUco and SLEAP matching with a rolling window Hungarian matching system
 
@@ -618,10 +621,9 @@ if __name__ == '__main__':
 			print('\n\nStacked multiprocessing results:\n')
 			print(np.transpose(overall_result))
 
-		np.savetxt('test.csv', overall_result, delimiter = ',')
-
 		pairings = overall_result
 
+	# If single-threaded
 	else:
 		pairings = ArUco_SLEAP_matching(video_path, slp_file_path, ArUco_csv_path, (start_here_frame, end_here_frame), minimum_sleap_score, crop_size, half_rolling_window_size, enhanced_output, display_images_cv2)
 		if enhanced_output:
