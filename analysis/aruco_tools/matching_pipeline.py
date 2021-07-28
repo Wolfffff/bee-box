@@ -634,7 +634,7 @@ if __name__ == '__main__':
 	# We're done with actual data processing!  Yay!
 	# Now, we're left with the optional process of annotating the video with our pairings.
 	if annotate_video:
-		annotate_video_sleap_aruco_pairings(video_path, files_folder_path + '/' + name_stem + '_annotated.mp4', ArUco_csv_path, slp_file_path, pairings, range(start_here_frame, end_here_frame), display_output_on_screen = False)
+		annotate_video_sleap_aruco_pairings(video_path, files_folder_path + '/' + name_stem + '_annotated.mp4', ArUco_csv_path, slp_file_path, pairings, range(start_here_frame, end_here_frame))
 
 
 	# Generate dataframe coordinates output
