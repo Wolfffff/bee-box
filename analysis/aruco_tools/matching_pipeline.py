@@ -51,13 +51,15 @@ from tabulate import tabulate
 import aruco_utils_pd as awpd
 
 def sleap_reader(slp_predictions_path: str) -> h5py.File:
-	f = h5py.File(slp_predictions_path, 'r')
+	# Setting driver = 'core' forces the entire file to be loaded in to RAM: much faster
+	# SLEAP files aren't huge so this should be OK.
+	f = h5py.File(slp_predictions_path, 'r', driver = 'core')
 	return f
 
 def ArUco_SLEAP_matching_wrapper(p):
 	return ArUco_SLEAP_matching(*p)
 
-def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_frame: tuple[int, int], minimum_sleap_score: float = 0.1, crop_size: int = 50, half_rolling_window_size: int = 50, enhanced_output: bool = False, display_images_cv2: bool = False) -> np.ndarray:
+def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_frame: tuple[int, int], minimum_sleap_score: float = 0.1, crop_size: int = 50, half_rolling_window_size: int = 50, enhanced_output: bool = False, display_images_cv2: bool = False, sleap_file: h5py.File = None) -> np.ndarray:
 	'''
 	Args:
 		video_path: path to bee video file.
@@ -84,10 +86,19 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 	# This function ....
 	# Throw an error if the rolling window is too large for the assigned range of frames; self-explanatory
 	if start_end_frame[1] - start_end_frame[0] < (2 * half_rolling_window_size) + 1:
-		raise ValueError(f'The rolling window is size (2 * {half_rolling_window_size} + 1) = {(2 * half_rolling_window_size) + 1}, larger than the range of assigned frames which is {start_end_frame[1]} - {start_end_frame[0]} = {start_end_frame[1] - start_end_frame[0]}')
+		raise ValueError(f'[ArUco_SLEAP_matching {start_end_frame}] The rolling window is size (2 * {half_rolling_window_size} + 1) = {(2 * half_rolling_window_size) + 1}, larger than the range of assigned frames which is {start_end_frame[1]} - {start_end_frame[0]} = {start_end_frame[1] - start_end_frame[0]}')
 
-	#
-	sleap_file = sleap_reader(slp_predictions_path)
+	# We have the option of passing in a SLEAP file to avoid loading it within the function.
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] Starting assignment with frame range {start_end_frame}.')
+
+	# Now, let's put the relevant SLEAP tracks into the same data structure: a dict containing interpolated coords for each track
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [SLEAP Data Restructuring] Started')
+	sleap_interpolation_start = time.perf_counter()
+	if sleap_file == None:
+		print('Loading SLEAP file...')
+		sleap_file = sleap_reader(slp_predictions_path)
+	else:
+		print(f'[ArUco_SLEAP_matching {start_end_frame}] Recieved SLEAP file; moving immediately to processing')
 	sleap_predictions = sleap_file['pred_points']
 	sleap_instances   = sleap_file['instances']
 	sleap_frames = sleap_file['frames']
@@ -97,10 +108,6 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 	if unique_tracks[0] == -1:
 		unique_tracks = unique_tracks[1:-1]
 
-	# Now, let's put the relevant SLEAP tracks into the same data structure: a dict containing interpolated coords for each track
-	print('[SLEAP Data Restructuring] Started')
-	sleap_interpolation_start = time.perf_counter()
-
 	# Iterate from the start to end frame of the range specified to collect the SLEAP predictions into a simple dataframe
 	# We start with everything in a list which is cheaper to append to.  Then we instantiate a dataframe using the list.
 	sleap_predictions_df = []
@@ -109,7 +116,7 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 		try:
 			iter_sleap_frame = sleap_frames[frame_number]
 		except:
-			raise ValueError(f'Provided .slp file does not have predictions for frame {frame_number}, which is within the assigned range of {start_end_frame}!') 
+			raise ValueError(f'[ArUco_SLEAP_matching {start_end_frame}] Provided .slp file does not have predictions for frame {frame_number}, which is within the assigned range of {start_end_frame}!') 
 		for iter_frame_idx in range(iter_sleap_frame['instance_id_start'], iter_sleap_frame['instance_id_end']): # range(instance_id_start, instance_id_end)
 			current_instance = sleap_instances[iter_frame_idx]
 			prediction_index = current_instance['point_id_start'] # Member 'point_id_start':  H5T_STD_U64LE (uint64)
@@ -123,15 +130,15 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 	sleap_predictions_df = pd.DataFrame(sleap_predictions_df, columns = ['Frame', 'Track', 'cX', 'cY'])
 
 	sleap_interpolation_end = time.perf_counter()
-	print(f'[SLEAP Data Restructuring] Ended, FPS: {round(float(start_end_frame[1] - start_end_frame[0] + 1) / float(sleap_interpolation_end - sleap_interpolation_start), 2)}')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [SLEAP Data Restructuring] Ended, FPS: {round(float(start_end_frame[1] - start_end_frame[0] + 1) / float(sleap_interpolation_end - sleap_interpolation_start), 2)}')
 
 	if enhanced_output:
 		print(sleap_predictions_df)
 
-	print('[SLEAP-cropped ArUco] Started')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [SLEAP-cropped ArUco] Started')
 	ScA_start = time.perf_counter()
 
-	print('\n[SLEAP-cropped ArUco] Initializing variables\n')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [SLEAP-cropped ArUco] Initializing variables...')
 	# We currently use the collection of 50 tags with 4 x 4 = 16 pixels.
 	# define names of a few possible ArUco tag OpenCV supports
 	ARUCO_DICT = {
@@ -167,7 +174,7 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 	vs = cv2.VideoCapture(video_path)
 	vs.set(cv2.CAP_PROP_POS_FRAMES, start_end_frame[0])
 
-	print('\n[SLEAP-cropped ArUco] Iterating through frames and running ArUco on crops\n')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [SLEAP-cropped ArUco] Iterating through frames and running ArUco on crops')
 	# This variable is used to keep track of whether we're still processing the same frame or not.
 	# We want to know when we move to a new frame so that we can load it.
 	previous_frame = start_end_frame[0] - 1
@@ -234,22 +241,22 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 		previous_frame = row.Frame
 
 	if enhanced_output:
-		print(f'Frame {previous_frame}: {detections} tag(s)')
+		print(f'[ArUco_SLEAP_matching {start_end_frame}] Frame {previous_frame}: {detections} tag(s)')
 
 	# Instantiate a results dataframe and save it!
 	results_df = pd.DataFrame(results_array, columns = ['Frame', 'Track', 'Tag', 'cX','cY', 'Theta'])
 	results_df = results_df.astype({'Frame': int, 'Track': int, 'Tag': int, 'cX': np.float64,'cY': np.float64, 'Theta': np.float64})
 
 	ScA_end = time.perf_counter()
-	print(f'[SLEAP-cropped ArUco] Ended, FPS: {round(float(start_end_frame[1] - start_end_frame[0] + 1) / float(ScA_end - ScA_start), 2)}')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [SLEAP-cropped ArUco] Ended, FPS: {round(float(start_end_frame[1] - start_end_frame[0] + 1) / float(ScA_end - ScA_start), 2)}')
 
 	if enhanced_output:
-		print(f'\n\nResults dataframe:\n{results_df}\n\n')
+		print(f'\nResults dataframe:\n{results_df}\n\n')
 
-	print('[Rolling Window Tag-Track Association] Started')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Started')
 	RWTTA_start = time.perf_counter()
 
-	print('\n[Rolling Window Tag-Track Association] Initializing variables\n')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Initializing variables')
 	# Munkres is the package for the Hungarian algorithm.
 	m = Munkres()
 
@@ -284,7 +291,7 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 		print('Detected tracks: ', tracks)
 		print('\n')
 
-	print('\n[Rolling Window Tag-Track Association] Filling initial window\n')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Filling initial window')
 	# Go ahead and fill data for the first window
 	# This lets us move forward in the rolling window just by computing the next frame entering the window each time: fast!
 	for frame in range(start_end_frame[0], start_end_frame[0] + (2 * half_rolling_window_size) + 1):
@@ -295,7 +302,7 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 		for row in new_frame_df.itertuples():
 			frame_cost_matrices_dict[frame][tag_indices[int(row.Tag)], track_indices[int(row.Track)]] -= 1
 
-	print('\n[Rolling Window Tag-Track Association] Starting Hungarian assignments with rolling window\n')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Starting Hungarian assignments with rolling window')
 	# Start rolling the window forward.
 	for center_of_window_frame in range(start_end_frame[0] + half_rolling_window_size + 1, start_end_frame[1] - half_rolling_window_size + 1):
 		if enhanced_output:
@@ -357,10 +364,10 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 			print('Assigned tag-track pairs: ', hungarian_pairs)
 
 	RWTTA_end = time.perf_counter()
-	print(f'\n[Rolling Window Tag-Track Association] Ended, FPS: {round(float(start_end_frame[1] - start_end_frame[0] + 1) / float(RWTTA_end - RWTTA_start), 2)}')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Ended, FPS: {round(float(start_end_frame[1] - start_end_frame[0] + 1) / float(RWTTA_end - RWTTA_start), 2)}')
 
 	# Inherit tracks
-	print('\n[Track Inheritance] Running')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [Track Inheritance] Running')
 	for current_frame in tag_tracks_2d_array[0, 2 : -1]:
 		for row_idx in range(1, len(tags) + 1):
 			# indexing is a bit messy for this array so we make things easier with np.searchsorted.
@@ -368,8 +375,8 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 			for column_idx in range(1, tag_tracks_2d_array.shape[1]):
 				if tag_tracks_2d_array[row_idx, column_idx] == 0 and current_frame > start_end_frame[0] + half_rolling_window_size:
 					tag_tracks_2d_array[row_idx, column_idx] = tag_tracks_2d_array[row_idx, column_idx - 1]
-	print('\n[Track Inheritance] Finished!')
-	print('Done with SLEAP-based cropping ArUco tag-track association')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] [Track Inheritance] Finished!')
+	print(f'[ArUco_SLEAP_matching {start_end_frame}] Done with SLEAP-based cropping ArUco tag-track association')
 
 	return tag_tracks_2d_array.astype(int)
 
@@ -561,7 +568,7 @@ if __name__ == '__main__':
 	if multithreaded:
 		# Find number of CPU to maximize parallelization!
 		number_of_cpus = multiprocessing.cpu_count()
-		print(f'{number_of_cpus} CPUs available!')
+		print(f'[MAIN] {number_of_cpus} CPUs available!')
 
 		# Split the assigned frames into parallel chunks
 		# The code is slightly messy because the chunks must overlap by half_rolling_window_size... for details see the docstring for ArUco_sleap_matching
@@ -576,20 +583,21 @@ if __name__ == '__main__':
 
 		assignment_tuples.append((assignment_tuples[-1][1] - (2 * half_rolling_window_size), end_here_frame))
 
-		print('\nAssignment ranges: ', assignment_tuples)
-
+		print('[MAIN] Assignment ranges: ', assignment_tuples)
 		# Put together a list of parameter tuples to pass into the parallel instances
 		chunks_to_assign = []
 		for chunk in assignment_tuples:
-			chunks_to_assign.append((video_path, slp_file_path, chunk, minimum_sleap_score, crop_size, half_rolling_window_size, False, False))
+			chunks_to_assign.append((video_path, slp_file_path, chunk, minimum_sleap_score, crop_size, half_rolling_window_size, False, False, sleap_reader(slp_file_path)))
+
+		print('[MAIN] Done preparing assignment chunks.')
 
 		# Start the parallel tasks!
 		start = time.perf_counter()
 		with concurrent.futures.ThreadPoolExecutor() as executor:
-			print('Tasks now in queue...')
+			print('[MAIN] Tasks now in queue...')
 			results_generator = executor.map(ArUco_SLEAP_matching_wrapper, chunks_to_assign)
 		end = time.perf_counter()
-		print(f'[Multiprocessing SLEAP-cropped ArUco] Ended, Effective overall FPS: {round(float(end_here_frame - start_here_frame + 1) / float(end - start), 2)}')
+		print(f'[MAIN] Multiprocessed matching ended, effective overall FPS: {round(float(end_here_frame - start_here_frame + 1) / float(end - start), 2)}')
 
 		# Once results are available, stack them up!
 		# Well, this is actually requires a bit more subtelty; the different chunks may have different tags
