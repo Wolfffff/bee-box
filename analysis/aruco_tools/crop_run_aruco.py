@@ -1,52 +1,13 @@
-# Scroll to the bottom to see detailed comments and the entire pipeline condensed into a single block of code.
-'''
-************************************/(#/****************************************
-**************************************/%(*//*****//*****************************
-***************************************/(%///////**////**//*********************
-********************************//**//////%#//////////////////*///**************
-*********************************//////////(%((/((//////////*****/**************
-*****************************/////((((((((((((#%%(((((////////***//(((/*********
-**********************///////////(%&&(((((%&&&&&&&&&&&&&%#%%%#((///**/**********
-*********************////////////(%&&%(#%&@@@@&&&@@@@&%((////////////***********
-****************/****//////////(((((#/**/#%&&&&&&&@@@&&&#((///////////**********
-**********/*****//////////////(((((//(&&&#/**(&&%%%%&&&&#((((////////***********
-*********/**///////////////////((/*/%&%//(%&&%/***(#%%%%&&&&%(///////*/**/******
-********/////////(((((((((((((((**#&&&%/*****(%&&#*,/##%%%#((((//////***********
-******//////(%%&&&&&&&&&#(((((/*(&&&&&&&&(///(&&(**(%#((((((////////*/**********
-******//(###%%%%%##%&&&&&&&%#(*,**(%&&&&&&&&&&#*,*%&&#((((////////////**********
-***//(((/////////((((((((#%&&&&%(/***/(%&&&&%(,*(&&&%#(((((((///////////********
-***/**//////////////((((((###%&&%%&&%#****//*,/%&%&%###((((((((////////*/*******
-***//*//*//////////((((#&&&&&&&%%&&&&&&&&%(//(%%%%%####((((((((((///////********
-*****//////////////((#&&%##%&&&%%&&&&@&&@@&&&%&%%&@&&&&&&&&&&&&&%#(//////*******
-*//**/////////////((%&&&##%&&&%%&&%&&@@&&%%%&&%%&&%%%%%#((#%%&&%&&&%#///********
-***/**////////////(%&&&%#%@@&&%&&%%&&&&%%%%&%%&&&@@&&#(((((((((((#%%%%(//**/****
-*****////////////(#%&&&%#&&&&&&&&&&&&&%&%&&%%&&&%%%&&%((((((((////////(#(/******
-*****////////////(#&&&&#%&&&&&&%&&&%%&&&%&%%&&&&%#&@&%#((////////////////(///***
-*******//////////(#&&#(#&&&&&%%%&&&&&%%&%%&&&&&&%&&&&#((///////////////*********
-***/*/*/////////(%&#((((%%&#&&&&&&&&&%%%%%&&&&&&&&&&%((//////////////////*******
-******//////////##(/((((#%%%&&&&&&&&%&&&&&&&&&&%&&&%#(///////////////********/**
-*******/*///////%(/////((%#%&&&%%%%&&&&&&&&&&&%#&&%#((//////////******////******
-*******//**/////#(///////##%%%%%%&&&&&&&&&&&%#((%&#((///////////*///*****/******
-*******/*/***///((///////(#%%&&&&&&&&&&%&&&#((((%#(/////////////***/*****/***//*
-**********//////*//////////(((##%%%%%%&%%##((((#((///////////**/////*/////***/**
-**********/****//////////////((((((((((((((/((#(///////////////////*////////////
-'''
-
 import os
-import sys
 import cv2
+import h5py
+import time
+import operator
 import skvideo.io
+from tabulate import tabulate
+from munkres import Munkres
 import numpy as np
 import pandas as pd
-import time
-import h5py
-import threading
-import multiprocessing
-import concurrent.futures
-from datetime import datetime
-from contextlib import redirect_stdout
-from munkres import Munkres
-from tabulate import tabulate
 
 import aruco_utils_pd as awpd
 
@@ -54,10 +15,28 @@ def sleap_reader(slp_predictions_path: str) -> h5py.File:
 	f = h5py.File(slp_predictions_path, 'r')
 	return f
 
-def ArUco_SLEAP_matching_wrapper(p):
-	return ArUco_SLEAP_matching(*p)
+def read_frames(video_path: str, fidxs: list = None, grayscale: bool = True) -> np.array:
+	"""Read frames from a video file.
+	Args:
+		video_path: Path to MP4
+		fidxs: List of frame indices or None to read all frames (default: None)
+		grayscale: Keep only one channel of the images (default: True)
+	Returns:
+		Loaded images in array of shape (n_frames, height, width, channels) and dtype uint8.
+	"""
+	vr = cv2.VideoCapture(video_path)
+	if fidxs is None:
+		fidxs = np.arange(vr.get(cv2.CAP_PROP_FRAME_COUNT))
+	frames = []
+	for fidx in fidxs:
+		vr.set(cv2.CAP_PROP_POS_FRAMES, fidx)
+		img = vr.read()[1]
+		if grayscale:
+			img = img[:, :, [0]]
+		frames.append(img)
+	return np.stack(frames, axis=0)
 
-def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, results_df_path: str, start_end_frame: tuple[int, int], minimum_sleap_score: float = 0.1, crop_size: int = 50, half_rolling_window_size: int = 50, enhanced_output: bool = False, display_images_cv2: bool = False) -> np.ndarray:
+def crop_run_aruco(video_path: str, slp_predictions_path: str, results_df_path: str, start_end_frame: tuple[int, int], minimum_sleap_score: float = 0.1, crop_size: int = 50, half_rolling_window_size: int = 50, enhanced_output: bool = False, display_images_cv2: bool = False) -> list:
 	'''
 	Args:
 		video_path: path to bee video file.
@@ -88,9 +67,9 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, results_df_
 
 	#
 	sleap_file = sleap_reader(slp_predictions_path)
-	sleap_predictions = sleap_file['pred_points']
-	sleap_instances   = sleap_file['instances']
-	sleap_frames = sleap_file['frames']
+	sleap_predictions = np.array(sleap_file['pred_points'])
+	sleap_instances   = np.array(sleap_file['instances'])
+	sleap_frames = np.array(sleap_file['frames'])
 
 	# Not sure why, but we get a 'track -1'... get rid of it!
 	unique_tracks = np.sort(np.unique([int(j[4]) for j in sleap_instances]))
@@ -110,14 +89,14 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, results_df_
 			iter_sleap_frame = sleap_frames[frame_number]
 		except:
 			raise ValueError(f'Provided .slp file does not have predictions for frame {frame_number}, which is within the assigned range of {start_end_frame}!') 
-		for iter_frame_idx in range(iter_sleap_frame['instance_id_start'], iter_sleap_frame['instance_id_end']): # range(instance_id_start, instance_id_end)
+		for iter_frame_idx in range(iter_sleap_frame[3], iter_sleap_frame[4]): # range(instance_id_start, instance_id_end)
 			current_instance = sleap_instances[iter_frame_idx]
-			prediction_index = current_instance['point_id_start'] # Member 'point_id_start':  H5T_STD_U64LE (uint64)
-			track_number = current_instance['track'] # Member 'track':  H5T_STD_I32LE (int32)
+			prediction_index = current_instance[7] # Member 'point_id_start':  H5T_STD_U64LE (uint64)
+			track_number = current_instance[4] # Member 'track':  H5T_STD_I32LE (int32)
 			prediction = sleap_predictions[prediction_index]
-			if prediction['score'] >= minimum_sleap_score: # Member 'score':  H5T_IEEE_F64LE (double)
+			if prediction[4] >= minimum_sleap_score: # Member 'score':  H5T_IEEE_F64LE (double)
 				# if prediction[2] == 1 and prediction[3] == 1: # Member 'visible':  H5T_ENUM, Member 'complete':  H5T_ENUM
-				sleap_predictions_df.append((frame_number, track_number, float(prediction['x']), float(prediction['y'])))
+				sleap_predictions_df.append((frame_number, track_number, float(prediction[0]), float(prediction[1])))
 
 	# Instantiate the dataframe
 	sleap_predictions_df = pd.DataFrame(sleap_predictions_df, columns = ['Frame', 'Track', 'cX', 'cY'])
@@ -274,11 +253,11 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, results_df_
 
 	# Array to store results:
 	# Initialize an array full of zeros
-	tag_tracks_2d_array = np.zeros((1 + len(tags), start_end_frame[1] - half_rolling_window_size - (start_end_frame[0] + half_rolling_window_size) + 1))
+	tag_tracks_2d_array = np.zeros((1 + len(tags), start_end_frame[1] - half_rolling_window_size - (start_end_frame[0] + half_rolling_window_size)))
 	# Add a column of labels to show which tags are associated to which rows.  This isn't necessary at all on the programming side, but it GREATLY enhances readability for humans trying to debug.
 	tag_tracks_2d_array[:, 0] = np.concatenate(([0], tags))
 	# Column headers denoting frame numbers.  Same deal as above, although the program does use this, mostly out of convenience.  If it's there for human convenience, we might as well use it when convenient for the program too!
-	tag_tracks_2d_array[0, :] = np.concatenate(([start_end_frame[0] - 1], np.arange(start_end_frame[0] + half_rolling_window_size + 1, start_end_frame[1] - half_rolling_window_size + 1)))
+	tag_tracks_2d_array[0, :] = np.concatenate(([start_end_frame[0] - 1], np.arange(start_end_frame[0] + half_rolling_window_size + 1, start_end_frame[1] - half_rolling_window_size)))
 
 	if enhanced_output:
 		print('\n')
@@ -299,7 +278,7 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, results_df_
 
 	print('\n[Rolling Window Tag-Track Association] Starting Hungarian assignments with rolling window\n')
 	# Start rolling the window forward.
-	for center_of_window_frame in range(start_end_frame[0] + half_rolling_window_size + 1, start_end_frame[1] - half_rolling_window_size + 1):
+	for center_of_window_frame in range(start_end_frame[0] + half_rolling_window_size + 1, start_end_frame[1] - half_rolling_window_size):
 		if enhanced_output:
 			print('\n\n' + '=' * 80)
 			print(f'Frame (center of window): {center_of_window_frame}\n')
@@ -362,16 +341,16 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, results_df_
 	# Inherit tracks
 	print('\n[Track Inheritance] Running')
 	for current_frame in tag_tracks_2d_array[0, 2 : -1]:
-		for row_idx in range(1, len(tags) + 1):
+		for idx in range(1, len(tags) + 1):
 			# indexing is a bit messy for this array so we make things easier with np.searchsorted.
 			# Not optimal, but much more robust and much more readable than stuffing a ton of arithmetic into the index
-			for column_idx in range(1, tag_tracks_2d_array.shape[1]):
-				if tag_tracks_2d_array[row_idx, column_idx] == 0 and current_frame > start_end_frame[0] + half_rolling_window_size:
-					tag_tracks_2d_array[row_idx, column_idx] = tag_tracks_2d_array[row_idx, column_idx - 1]
+			column_idx = np.searchsorted(tag_tracks_2d_array[0, :], center_of_window_frame)
+			if tag_tracks_2d_array[idx, column_idx] == 0 and current_frame > 0:
+				tag_tracks_2d_array[idx, column_idx] = tag_tracks_2d_array[idx, column_idx - 1]
 	print('\n[Track Inheritance] Finished!')
-	print('Done with SLEAP-based cropping ArUco tag-track association')
+	print('Done with SLEAP-based cropping ArUco tag-track association (ScAtt)')
 
-	return tag_tracks_2d_array.astype(int)
+	return tag_tracks_2d_array
 
 
 def annotate_video_sleap_aruco_pairings(video_path: str, video_output_path: str, aruco_csv_path: str, slp_predictions_path: str,\
@@ -459,8 +438,8 @@ def annotate_video_sleap_aruco_pairings(video_path: str, video_output_path: str,
 				for pair in pairings:
 					if pair[1] == current_track:
 						current_tag = pair[0]
-				cv2.putText(image, str(int(current_tag)), (pX, pY - 75), font, 4, (255, 0, 0), 2)
-				cv2.putText(image, str(int(current_track)), (pX, pY + 100), font, 2, (255, 0, 0), 2)
+				cv2.putText(image, str(current_tag), (pX, pY - 75), font, 4, (255, 0, 0), 2)
+				cv2.putText(image, str(current_track), (pX, pY + 100), font, 2, (255, 0, 0), 2)
 			except:
 				# print(f'Failure on frame {frame}')
 				errors += 1
@@ -492,200 +471,6 @@ def annotate_video_sleap_aruco_pairings(video_path: str, video_output_path: str,
 	writer.close()
 	cv2.destroyAllWindows()
 
-
 if __name__ == '__main__':
-	# SLEAP data is necessary before running this pipeline; ArUco data will be generated here.
-	# We also need the python file aruco_utils_pd.py in the same folder.
-	# Video is also assumed to be cropped, since all recent data has been pre-cropped.
-	# Cropping functionality can be replaced by changing the 'dimension' value to a positive integer.
-
-	# TODO: allow specification of frames to run pipline on for easier parallelization
-	# TODO: write functionality for the pipline to start partway through if data already exists; this speeds up recovery from failures, and can also lay the basis for much more efficient experimentation with parameters!
-	# TODO: Finish fixing bugs with multiprocessing
-
-	# Required arguments when calling this script
-	video_path        = str(sys.argv[1])				# The path of the input video; this will be used for generating ArUco tag data and for annotating the result onto video for manual checking
-	slp_file_path     = str(sys.argv[2])				# The path of the relevant .slp inference results.
-	files_folder_path = str(sys.argv[3])				# The folder which is to contain the plethora of files that this script will spit out.  Please make this ahead of time!
-	name_stem         = str(sys.argv[4])				# A basic name stem that will be conjugated to generate the various filenames.
-	annotate_video    = sys.argv[5].lower() == 'true'	# Should we annotate the video with the final pairings
-	start_here_frame  = int(sys.argv[6])				# First frame that should be processed
-	end_here_frame    = int(sys.argv[7])				# Last frame that should be processed
-	multithreaded     = sys.argv[8].lower() == 'true'   # Whether to run multithreaded or not.  Since there are delays associated with assigning jobs, this is only faster for large batches (I don't know exactly where the crossover is).
-
-	# Here's an example of how one might run this:
-	# python ./matching_pipline.py ../sleap_videos/20210715_run001_00000000.mp4 ../sleap_videos/20210715_run001_00000000.mp4.predictions.slp ./matching_work 20210715_run001_2min_full_pipline_test True 0 12000
-
-
-	# ~~~THE CONTROL PANEL~~~
-	# These values are nominally set to what I (dknapp) think to be the best; they are definitely worth messing with though.
-	minimum_sleap_score = 0.1 			# Minimum SLEAP prediction score for the data point to be used to look for an ArUco tag.  A crude way to try to avoid wasting time on bad SLEAP predicitons.
-
-	crop_size = 50 						# The number of pixels horizontally and vertically around the SLEAP tag prediction point to crop away to run ArUco on.  Smaller values are faster, but risk cutting off tags and ruining perfectly good data.
-
-	half_rolling_window_size = 5 		# See next section of the docstring.  Used to specify the size of the rolling window for Hungarian matching.
-										# When SLEAP makes mistakes and passes a track from one bee to another, there's a transition region where the matching will not be guaranteed to follow perfectly;
-										# While the track transition is within the rolling window, we're not guaranteed to assign correctly.
-										# For instance, with half_rolling_window_size = 20 on a 20 fps video, we're not completely confident about the matching until 1 second before, and 1 second after the transition.
-
-	enhanced_output = True 				# If set to true, this function will spit out a ton of console output useful for debugging.  Best to pipe to a .txt file and carefully read through as necessary.
-
-	display_images_cv2 = False			# If set to true, displays cropped images.  Useful for judging crop_size.  Only for local running, and never for actual large batches of data processing.
-	
-	# Better numpy printing
-	np.set_printoptions(edgeitems = 30, linewidth = 100000, formatter = dict(float = lambda x: "%.3g" % x))
-
-	# Redirect mountains of console output to a .txt file
-	# TODO: documentation on strategies to sift through the console output.
-	# f = open(files_folder_path + '/' + name_stem + '_console_output.txt', 'w')
-	# redirect_stdout(f)
-
-	# ArUco and SLEAP matching with a rolling window Hungarian matching system
-
-	ArUco_csv_path = files_folder_path + '/' + name_stem + '_aruco_data_with_track_numbers.csv'
-	if multithreaded:
-		# Find number of CPU to maximize parallelization!
-		number_of_cpus = multiprocessing.cpu_count()
-		print(f'{number_of_cpus} CPUs available!')
-
-		# Split the assigned frames into parallel chunks
-		# The code is slightly messy because the chunks must overlap by half_rolling_window_size... for details see the docstring for ArUco_sleap_matching
-		assignment_tuples = []
-		frames_per_cpu = int((end_here_frame - start_here_frame) / number_of_cpus)
-
-		assignment_tuples.append((start_here_frame, frames_per_cpu + half_rolling_window_size))
-
-		if number_of_cpus > 2:
-			for cpu in range(2, number_of_cpus):
-				assignment_tuples.append((assignment_tuples[-1][1] - (2 * half_rolling_window_size), assignment_tuples[-1][1] + frames_per_cpu + half_rolling_window_size))
-
-		assignment_tuples.append((assignment_tuples[-1][1] - (2 * half_rolling_window_size), end_here_frame))
-
-		print('\nAssignment ranges: ', assignment_tuples)
-
-		# Put together a list of parameter tuples to pass into the parallel instances
-		chunks_to_assign = []
-		for chunk in assignment_tuples:
-			chunks_to_assign.append((video_path, slp_file_path, ArUco_csv_path, chunk, minimum_sleap_score, crop_size, half_rolling_window_size, False, False))
-
-		# Start the parallel tasks!
-		start = time.perf_counter()
-		with concurrent.futures.ThreadPoolExecutor() as executor:
-			results_generator = executor.map(ArUco_SLEAP_matching_wrapper, chunks_to_assign)
-		end = time.perf_counter()
-		print(f'[Multiprocessing SLEAP-cropped ArUco] Ended, Effective overall FPS: {round(float(end_here_frame - start_here_frame + 1) / float(end - start), 2)}')
-
-		# Once results are available, stack them up!
-		# Well, this is actually requires a bit more subtelty; the different chunks may have different tags
-
-		# Put results into list
-		results = []
-		for result in results_generator:
-			results.append(result)
-
-		# Collect tags in each of the results
-		result_tags = []
-		for idx in range(number_of_cpus):
-			result_tags.append(results[idx][1 : -1, 0])
-
-		# Find all of the unique tags in the entire range
-		all_unique_tags = np.sort(np.unique(np.concatenate(result_tags)))
-
-		# If one of the result chunks is missing rows for tags, put them in
-		# This lets us then simply stack the arrays
-		for idx in range(number_of_cpus):
-			for tag in all_unique_tags:
-				if not (tag in results[idx][1 : -1, 0]):
-					insert_idx = np.searchsorted(results[idx][1 : -1, 0], tag, side = 'right')
-					results[idx] = np.insert(results[idx], insert_idx, np.zeros(results[idx].shape[1]), axis = 0)
-
-					if enhanced_output:
-						print(f'Added empty row for tag {tag}')
-
-			if enhanced_output:
-				print(results[idx])
-
-		# Horizontally stack up the results
-		overall_result = results[0]
-		for idx in range(1, len(results) - 1):
-			overall_result = np.hstack((overall_result, results[idx][:, 1 : -1]))
-			if enhanced_output:
-				print(np.transpose(overall_result))
-		overall_result[1 : -1, 0] = all_unique_tags
-
-		np.savetxt('test.csv', overall_result, delimiter = ',')
-
-		tags = np.sort(np.unique(overall_result[1 : -1, 0]))
-		tracks = np.setdiff1d(np.sort(np.unique(overall_result[1 : -1, 1: -1])), [0])
-
-		tag_tracks_2d_array = np.zeros((1 + len(tags), end_here_frame - start_here_frame - (2 * half_rolling_window_size) + 1))
-		# Add a column of labels to show which tags are associated to which rows.  This isn't necessary at all on the programming side, but it GREATLY enhances readability for humans trying to debug.
-		tag_tracks_2d_array[:, 0] = np.concatenate(([0], tags))
-		# Column headers denoting frame numbers.  Same deal as above, although the program does use this, mostly out of convenience.  If it's there for human convenience, we might as well use it when convenient for the program too!
-		tag_tracks_2d_array[0, :] = np.concatenate(([start_here_frame - 1], np.arange(start_here_frame + half_rolling_window_size + 1, end_here_frame - half_rolling_window_size + 1)))
-
-		tag_indices = {}
-		for idx in range(len(tags)):
-			tag_indices[int(tags[idx])] = idx
-
-		pairings = tag_tracks_2d_array.astype(int)
-		if enhanced_output:
-			print(np.transpose(pairings))
-
-	else:
-		pairings = ArUco_SLEAP_matching(video_path, slp_file_path, ArUco_csv_path, (start_here_frame, end_here_frame), minimum_sleap_score, crop_size, half_rolling_window_size, enhanced_output, display_images_cv2)
-		if enhanced_output:
-			print(np.transpose(pairings))
-
-	# Save matching results as a CSV
-	matching_results_path = files_folder_path + '/' + name_stem + '_matching_result.csv'
-	np.savetxt(matching_results_path, np.copy(pairings), delimiter = ',')
-
-	# We're done with actual data processing!  Yay!
-	# Now, we're left with the optional process of annotating the video with our pairings.
-	if annotate_video:
-		annotate_video_sleap_aruco_pairings(video_path, files_folder_path + '/' + name_stem + '_annotated.mp4', ArUco_csv_path, slp_file_path, pairings, range(start_here_frame, end_here_frame), display_output_on_screen = False)
-
-
-	# Generate dataframe coordinates output
-	# Frame, Tag, TagX, TagY
-	# TODO: Annotate this
-	# TODO: Add all body parts to the dataframe
-	# TODO: Weird bug where last column of pairings is ignored.
-	sleap_file = sleap_reader(slp_file_path)
-	sleap_predictions = sleap_file['pred_points']
-	sleap_instances   = sleap_file['instances']
-	sleap_frames = sleap_file['frames']
-	output_data = []
-	failures = 0
-	frame_idx = 0
-	if enhanced_output:
-		print('All frames for final data generation: ', pairings[0, 1 : -1])
-	for frame in pairings[0, 1 : -1]:
-		frame_idx += 1
-		current_sleap_frame = sleap_frames[frame]
-		current_frame_idx = current_sleap_frame['instance_id_start']
-		next_frame_idx = current_sleap_frame['instance_id_end']
-		for idx in range(current_frame_idx, next_frame_idx):
-			nth_inst_tuple = sleap_instances[idx]
-			prediction_start_idx = nth_inst_tuple['point_id_start']
-			prediction = sleap_predictions[prediction_start_idx] # start_idx corresponds to the tag
-			pX = float(prediction['x'])
-			pY = float(prediction['y'])
-			current_track = nth_inst_tuple['track']
-			if current_track > 0 and current_track in pairings[:, frame_idx]:
-				current_tag_idx = np.where(pairings[:, frame_idx] == current_track)[0]
-				current_tag = pairings[current_tag_idx, 0]
-
-				try:
-					output_data.append((frame, int(current_tag), pX, pY))
-				except:
-					if enhanced_output:
-						print(current_tag)
-	
-	output_df = pd.DataFrame(output_data, columns = ['Frame', 'Tag', 'TagX', 'TagY'])
-	print(output_df)
-	output_df.to_csv(files_folder_path + '/' + name_stem + '_tag_coords.csv', index=False)
-	
-
-# python matching_pipeline.py d:\\20210715_run001_00000000_cut.mp4 d:\\20210725_preds_1200frames.slp d:/matching_testing crop_ArUco_testing False 0 300 True
+	pairings = crop_run_aruco('d:\\20210715_run001_00000000_cut.mp4', 'd:\\20210725_preds_1200frames.slp', 'd:\\test_results.csv', (0, 1200), minimum_sleap_score = 0.1, crop_size  = 50, half_rolling_window_size = 30, enhanced_output = True, display_images_cv2 = False)
+	annotate_video_sleap_aruco_pairings('d:\\20210715_run001_00000000_cut.mp4', 'd:\\20210715_run001_00000000_cut_crop_aruco_test.mp4', 'd:\\test_results.csv', 'd:\\20210725_preds_1200frames.slp', pairings, range(0, 1199))

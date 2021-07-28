@@ -8,6 +8,7 @@ import h5py
 import skvideo.io
 from tabulate import tabulate
 from munkres import Munkres
+# from hausdorff import hausdorff_distance
 
 import aruco_utils_pd as awpd
 import discrete_frechet as frechet
@@ -17,17 +18,23 @@ def sleap_reader(slp_predictions_path: str) -> h5py.File:
 	f = h5py.File(slp_predictions_path, 'r')
 	return f
 
-
 def sigmoid(input_value: float, center: float, slope: float):
 	'''
 	sigmoid = 1 / (1 + exp[-slope * {input - centur}])
 	'''
 	return 1 / (1. + np.exp(-slope * (input_value - center)))
 
+def euclidean(array_x, array_y):
+	n = array_x.shape[0]
+	ret = 0.
+	for i in range(n):
+		ret += (array_x[i]-array_y[i])**2
+	return np.sqrt(ret)
+
 
 def rolling_hungarian_matching_frechet(cleaned_aruco_csv_path: str, slp_predictions_path: str, start_end_frames_assignment: tuple[int, int], last_frame_in_video: int,\
  half_rolling_window_size: int, maximum_hop_length: int, minimum_sleap_score: float, min_tag_detection_freq: float, min_track_detection_freq: float,\
- window_min_tag_detection_freq: float, window_min_track_detection_freq: float, pairing_threshold: float,\
+ window_min_tag_detection_freq: float, window_min_track_detection_freq: float, mean_distance_weight: float, sigmoid_inflection: float, sigmoid_slope: float, pairing_threshold: float,\
   enhanced_output: bool = True) -> list:
 	# Load relevant data into RAM =============================================================================================================================
 
@@ -69,7 +76,7 @@ def rolling_hungarian_matching_frechet(cleaned_aruco_csv_path: str, slp_predicti
 	killed_tags = []
 	for tag in tags:
 		# Kill dataframes with not enough data
-		if len(aruco_dict_by_tag[tag].index) < 2 * half_rolling_window_size * min_tag_detection_freq:
+		if len(aruco_dict_by_tag[tag].index) < 2 * (start_end_frame[1] - start_end_frame[0]) * min_tag_detection_freq:
 			del aruco_dict_by_tag[tag]
 			tags = np.setdiff1d(tags, [tag])
 			killed_tags.append(tag)
@@ -146,7 +153,7 @@ def rolling_hungarian_matching_frechet(cleaned_aruco_csv_path: str, slp_predicti
 		sleap_predictions_dict_by_track[track] = pd.DataFrame(sleap_predictions_dict_by_track[track], columns = ['Frame', 'cX', 'cY'])
 
 		# Kill dataframes with not enough data
-		if len(sleap_predictions_dict_by_track[track].index) < 2 * half_rolling_window_size * min_track_detection_freq:
+		if len(sleap_predictions_dict_by_track[track].index) < 2 * (start_end_frame[1] - start_end_frame[0]) * min_track_detection_freq:
 			del sleap_predictions_dict_by_track[track]
 			unique_tracks = np.setdiff1d(unique_tracks, [track])
 			killed_tracks.append(track)
@@ -187,7 +194,7 @@ def rolling_hungarian_matching_frechet(cleaned_aruco_csv_path: str, slp_predicti
 		trimmed_tags = np.copy(tags)
 		for tag in tags:
 			tags_window_dict[tag] = aruco_dict_by_tag[tag].loc[center_of_window_frame - half_rolling_window_size : center_of_window_frame + half_rolling_window_size]
-			if len(tags_window_dict[tag].index) < 2 * half_rolling_window_size * window_min_tag_detection_freq:
+			if len(tags_window_dict[tag].index) < (2 * half_rolling_window_size + 1) * window_min_tag_detection_freq:
 				del tags_window_dict[tag]
 				trimmed_tags = np.setdiff1d(trimmed_tags, [tag])
 				if enhanced_output:
@@ -202,7 +209,7 @@ def rolling_hungarian_matching_frechet(cleaned_aruco_csv_path: str, slp_predicti
 		trimmed_tracks = np.copy(unique_tracks)
 		for track in unique_tracks:
 			tracks_window_dict[track] = sleap_predictions_dict_by_track[track].loc[center_of_window_frame - half_rolling_window_size : center_of_window_frame + half_rolling_window_size]
-			if len(tracks_window_dict[track].index) < 2 * half_rolling_window_size * window_min_track_detection_freq:
+			if len(tracks_window_dict[track].index) < (2 * half_rolling_window_size + 1) * window_min_track_detection_freq:
 				del tracks_window_dict[track]
 				trimmed_tracks = np.setdiff1d(trimmed_tracks, [track])
 				if enhanced_output:
@@ -229,16 +236,41 @@ def rolling_hungarian_matching_frechet(cleaned_aruco_csv_path: str, slp_predicti
 		# Iterate through every combination of tags and tracks
 		for tag in trimmed_tags:
 			for track in trimmed_tracks:
-				current_tag_path = np.transpose(np.stack((tags_window_dict[tag]['cX'].values, tags_window_dict[tag]['cY'].values)))
-				current_track_path = np.transpose(np.stack((tracks_window_dict[track]['cX'].values, tracks_window_dict[track]['cY'].values)))
+				current_tag_path = np.stack((tags_window_dict[tag]['cX'].values, tags_window_dict[tag]['cY'].values))
+				current_track_path = np.stack((tracks_window_dict[track]['cX'].values, tracks_window_dict[track]['cY'].values))
+
+				# Calculate the Hausdorff distance between ArUco tag and SLEAP prediction paths.
+				# Do Hausdorff first, then transpose the matrices for Fréchet distance to cater to the preferences of each library
+				# Pad with repeated values to make the arrays the same length, if necessary: this actually doesn't affect the distances.
+				current_tag_path_padded   = np.copy(  current_tag_path)
+				current_track_path_padded = np.copy(current_track_path)
+				if current_tag_path.shape[1] > current_track_path.shape[1]:
+					if enhanced_output:
+						print(current_tag_path.shape)
+						print(current_track_path.shape)
+					current_track_path_padded = np.pad(current_track_path, ((0, 0), (0, current_tag_path.shape[1] - current_track_path.shape[1])), mode = 'edge')
+				elif current_tag_path.shape[1] < current_track_path.shape[1]:
+					if enhanced_output:
+						print(current_tag_path.shape)
+						print(current_track_path.shape)
+					current_tag_path_padded = np.pad(current_tag_path, ((0, 0), (0, current_track_path.shape[1] - current_tag_path.shape[1])), mode = 'edge')
+
+				# the_hausdorff_distance = hausdorff_distance(np.copy(current_tag_path_padded), np.copy(current_track_path_padded))
+
+				mean_distance = np.nanmean(euclidean(current_tag_path_padded, current_track_path_padded))
 
 				# Calculate the Fréchet distance between ArUco tag and SLEAP prediction paths
-				frechet_distance = fast_frechet.distance(current_tag_path, current_track_path)
+				current_tag_path = np.transpose(current_tag_path)
+				current_track_path = np.transpose(current_track_path)
+				the_frechet_distance = fast_frechet.distance(current_tag_path, current_track_path)
 
 				# Calculate cost
-				cost = frechet_distance
+				cost = the_frechet_distance + mean_distance_weight * sigmoid(mean_distance, sigmoid_inflection, sigmoid_slope)
 
 				cost_matrix[tags_indices[tag], tracks_indices[track]] = cost
+
+		if len(trimmed_tracks) == 0 or len(trimmed_tags) == 0:
+			continue
 
 		if len(trimmed_tracks) < len(trimmed_tags):
 			cost_matrix = np.transpose(cost_matrix)
@@ -411,15 +443,20 @@ def hungarian_annotate_video_sleap_aruco_pairings(video_path: str, video_output_
 if __name__ == '__main__':
 	start_frame = 0
 	end_frame = 600
-	half_rolling_window_size = 20
+	half_rolling_window_size = 25
 	maximum_hop_length = 10
 	minimum_sleap_score = 0.1
-	min_tag_detection_freq = 0.8
-	min_track_detection_freq = 0.8
-	window_min_tag_detection_freq = 0.5
-	window_min_track_detection_freq = 0.5
-	pairing_threshold = 25.
-	pairings = rolling_hungarian_matching_frechet('d:\\20210715_run001_00000000_cut_aruco_annotated.csv', 'd:\\20210715_run001_00000000_cut.mp4.predictions.slp', (start_frame, end_frame), 1200, half_rolling_window_size, maximum_hop_length, minimum_sleap_score, min_tag_detection_freq, min_track_detection_freq, window_min_tag_detection_freq, window_min_track_detection_freq, pairing_threshold, enhanced_output = False)
+	min_tag_detection_freq = 0.1
+	min_track_detection_freq = 0.3
+	window_min_tag_detection_freq = 0.1
+	window_min_track_detection_freq = 0.1
+	mean_distance_weight = 10000.
+	sigmoid_inflection = 50.
+	sigmoid_slope = 1.
+	pairing_threshold = 3000.
+	pairings = rolling_hungarian_matching_frechet('d:\\20210715_run001_00000000_cut_aruco_annotated.csv', 'd:\\20210715_run001_00000000_cut.mp4.predictions.slp', (start_frame, end_frame), 1300, \
+	 half_rolling_window_size, maximum_hop_length, minimum_sleap_score, min_tag_detection_freq, min_track_detection_freq, window_min_tag_detection_freq, window_min_track_detection_freq, \
+	  mean_distance_weight, sigmoid_inflection, sigmoid_slope, pairing_threshold, enhanced_output = False)
 	np.savetxt("aruco_sleap_matching_output.csv", pairings, delimiter = ",")
 
-	hungarian_annotate_video_sleap_aruco_pairings('d:\\20210715_run001_00000000_cut.mp4', 'd:\\frechet_test.mp4', 'd:\\20210715_run001_00000000_cut_aruco_annotated.csv', 'd:\\20210715_run001_00000000_cut.mp4.predictions.slp', pairings, (start_frame, end_frame), display_output_on_screen = True)
+	hungarian_annotate_video_sleap_aruco_pairings('d:\\20210715_run001_00000000_cut.mp4', 'd:\\frechet+sigmoid_mean_distance_test.mp4', 'd:\\20210715_run001_00000000_cut_aruco_annotated.csv', 'd:\\20210715_run001_00000000_cut.mp4.predictions.slp', pairings, (start_frame, end_frame), display_output_on_screen = True)
