@@ -59,7 +59,7 @@ def sleap_reader(slp_predictions_path: str) -> h5py.File:
 def ArUco_SLEAP_matching_wrapper(p):
 	return ArUco_SLEAP_matching(*p)
 
-def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_frame: tuple[int, int], minimum_sleap_score: float = 0.1, crop_size: int = 50, half_rolling_window_size: int = 50, enhanced_output: bool = False, display_images_cv2: bool = False, sleap_file: h5py.File = None) -> np.ndarray:
+def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_frame: tuple[int, int], minimum_sleap_score: float = 0.1, crop_size: int = 50, half_rolling_window_size: int = 50, enhanced_output: bool = False, display_images_cv2: bool = False, sleap_predictions = None, sleap_instances = None, sleap_frames = None) -> np.ndarray:
 	'''
 	Args:
 		video_path: path to bee video file.
@@ -94,14 +94,14 @@ def ArUco_SLEAP_matching(video_path: str, slp_predictions_path: str, start_end_f
 	# Now, let's put the relevant SLEAP tracks into the same data structure: a dict containing interpolated coords for each track
 	print(f'[ArUco_SLEAP_matching {start_end_frame}] [SLEAP Data Restructuring] Started')
 	sleap_interpolation_start = time.perf_counter()
-	if sleap_file == None:
-		print('Loading SLEAP file...')
+	if sleap_predictions is None:
+		print(f'[ArUco_SLEAP_matching {start_end_frame}] Loading SLEAP file...')
 		sleap_file = sleap_reader(slp_predictions_path)
+		sleap_predictions = sleap_file['pred_points']
+		sleap_instances   = sleap_file['instances']
+		sleap_frames = sleap_file['frames']
 	else:
 		print(f'[ArUco_SLEAP_matching {start_end_frame}] Recieved SLEAP file; moving immediately to processing')
-	sleap_predictions = sleap_file['pred_points']
-	sleap_instances   = sleap_file['instances']
-	sleap_frames = sleap_file['frames']
 
 	# Not sure why, but we get a 'track -1'... get rid of it!
 	unique_tracks = np.sort(np.unique([int(j[4]) for j in sleap_instances]))
@@ -545,7 +545,7 @@ if __name__ == '__main__':
 										# While the track transition is within the rolling window, we're not guaranteed to assign correctly.
 										# For instance, with half_rolling_window_size = 20 on a 20 fps video, we're not completely confident about the matching until 1 second before, and 1 second after the transition.
 
-	enhanced_output = True 				# If set to true, this function will spit out a ton of console output useful for debugging.  Best to pipe to a .txt file and carefully read through as necessary.
+	enhanced_output = False				# If set to true, this function will spit out a ton of console output useful for debugging.  Best to pipe to a .txt file and carefully read through as necessary.
 
 	display_images_cv2 = False			# If set to true, displays cropped images.  Useful for judging crop_size.  Only for local running, and never for actual large batches of data processing.
 
@@ -577,23 +577,31 @@ if __name__ == '__main__':
 
 		assignment_tuples.append((start_here_frame, frames_per_cpu + half_rolling_window_size))
 
-		if number_of_cpus > 2:
-			for cpu in range(2, number_of_cpus):
-				assignment_tuples.append((assignment_tuples[-1][1] - (2 * half_rolling_window_size), assignment_tuples[-1][1] + frames_per_cpu + half_rolling_window_size))
+		while assignment_tuples[-1][1] + frames_per_cpu + (2 * half_rolling_window_size + 1) < end_here_frame:
+			assignment_tuples.append((assignment_tuples[-1][1] - (2 * half_rolling_window_size), assignment_tuples[-1][1] + frames_per_cpu + half_rolling_window_size))
 
 		assignment_tuples.append((assignment_tuples[-1][1] - (2 * half_rolling_window_size), end_here_frame))
 
 		print('[MAIN] Assignment ranges: ', assignment_tuples)
+
 		# Put together a list of parameter tuples to pass into the parallel instances
+
+
+		sleap_file = sleap_reader(slp_file_path)
+		sleap_predictions = sleap_file['pred_points'][:]
+		sleap_instances   = sleap_file['instances'][:]
+		sleap_frames = sleap_file['frames'][:]
+
 		chunks_to_assign = []
 		for chunk in assignment_tuples:
-			chunks_to_assign.append((video_path, slp_file_path, chunk, minimum_sleap_score, crop_size, half_rolling_window_size, False, False, sleap_reader(slp_file_path)))
+			chunks_to_assign.append((video_path, slp_file_path, chunk, minimum_sleap_score, crop_size, half_rolling_window_size, False, False, sleap_predictions, sleap_instances, sleap_frames))
+			print(f'[MAIN] Created assignment for {chunk}')
 
 		print('[MAIN] Done preparing assignment chunks.')
 
 		# Start the parallel tasks!
 		start = time.perf_counter()
-		with concurrent.futures.ThreadPoolExecutor() as executor:
+		with concurrent.futures.ProcessPoolExecutor() as executor:
 			print('[MAIN] Tasks now in queue...')
 			results_generator = executor.map(ArUco_SLEAP_matching_wrapper, chunks_to_assign)
 		end = time.perf_counter()
@@ -609,7 +617,7 @@ if __name__ == '__main__':
 
 		# Collect tags in each of the results
 		result_tags = []
-		for idx in range(number_of_cpus):
+		for idx in range(len(assignment_tuples)):
 			result_tags.append(results[idx][1 : -1, 0])
 
 		# Find all of the unique tags in the entire range
@@ -617,7 +625,7 @@ if __name__ == '__main__':
 
 		# If one of the result chunks is missing rows for tags, put them in
 		# This lets us then simply stack the arrays
-		for idx in range(number_of_cpus):
+		for idx in range(len(assignment_tuples)):
 			for tag in all_unique_tags:
 				if not (tag in results[idx][1 : -1, 0]):
 					insert_idx = np.searchsorted(results[idx][1 : -1, 0], tag, side = 'left')
@@ -686,8 +694,7 @@ if __name__ == '__main__':
 				try:
 					output_data.append((frame, int(current_tag), pX, pY))
 				except:
-					if enhanced_output:
-						print(current_tag)
+					pass
 	
 	output_df = pd.DataFrame(output_data, columns = ['Frame', 'Tag', 'cX', 'cY'])
 	print(output_df)
