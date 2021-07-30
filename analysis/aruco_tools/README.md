@@ -8,7 +8,9 @@ Here's an example command that should run as-is on Tiger:
 
 ### Method
 matching_pipeline.py locates SLEAP predictions of ArUco fiducial tag locations, crops images around these locations and runs ArUco on these cropped images.  This allows optimization of ArUco by avoiding processing of empty parts of the images, and allows easy determination of tag and track associations.  To generate final SLEAP track and ArUco tag pairings that remain correct across track breaks and errors, the tag-track associations are accumulated over a rolling window, and Hungarian matching is used to produce the combination of tag-track pairings that optimizes the combination of accumulated associations.
+
 ![image](https://user-images.githubusercontent.com/81590411/127677749-fb60fe23-c2f9-46c2-9c41-975315a58ad8.png)
+
 (Image generated using the `-d` flag)
 
 ### Arguments:
