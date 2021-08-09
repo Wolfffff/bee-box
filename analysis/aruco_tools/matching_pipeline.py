@@ -260,7 +260,7 @@ def ArUco_SLEAP_matching(
     arucoParams.perspectiveRemoveIgnoredMarginPerCell = 0.13
 
     # If false positives are a problem, lower this parameter.
-    arucoParams.errorCorrectionRate = 1.0
+    arucoParams.errorCorrectionRate = 0
 
     # Appending results to a list is cheaper than appending them to a dataframe.
     results_array = []
@@ -416,6 +416,7 @@ def ArUco_SLEAP_matching(
             + 1,
         )
     )
+    tag_tracks_2d_array[:] = -1
     # Add a column of labels to show which tags are associated to which rows.  This isn't necessary at all on the programming side, but it GREATLY enhances readability for humans trying to debug.
     tag_tracks_2d_array[:, 0] = np.concatenate(([0], tags))
     # Column headers denoting frame numbers.  Same deal as above, although the program does use this, mostly out of convenience.  If it's there for human convenience, we might as well use it when convenient for the program too!
@@ -552,9 +553,10 @@ def ArUco_SLEAP_matching(
             # Not optimal, but much more robust and much more readable than stuffing a ton of arithmetic into the index
             for column_idx in range(1, tag_tracks_2d_array.shape[1]):
                 if (
-                    tag_tracks_2d_array[row_idx, column_idx] == 0
+                    tag_tracks_2d_array[row_idx, column_idx] == -1
                     and current_frame > start_end_frame[0] + half_rolling_window_size
                 ):
+                    logging.info("Inheriting previous tag information on " + str(current_frame))
                     tag_tracks_2d_array[row_idx, column_idx] = tag_tracks_2d_array[
                         row_idx, column_idx - 1
                     ]
@@ -610,9 +612,7 @@ def annotate_video_sleap_aruco_pairings(
     preset = "superfast"
     writer = skvideo.io.FFmpegWriter(
         video_output_path,
-        inputdict={
-            "-r": fps,
-        },
+        inputdict={"-r": fps,},
         outputdict={
             "-c:v": "libx264",
             "-preset": preset,
@@ -696,8 +696,9 @@ def annotate_video_sleap_aruco_pairings(
                 cv2.putText(
                     image, str(int(current_track)), (pX, pY + 100), font, 2, green, 2
                 )
-            except:
-                # logger.info(f'Failure on frame {frame}')
+            except Exception as e:
+                logger.error(f'Exception raised when writing on frame {frame}')
+                logger.error(f'Exception: {e}')
                 errors += 1
 
         # Persistent ArUco location plot
@@ -814,7 +815,7 @@ def generate_final_output_dataframe(
             thoraxY = float(prediction["y"])
             Theta = np.arctan2(abdomenY - headY, abdomenX - headX)
             current_track = nth_inst_tuple["track"]
-            if current_track > 0 and current_track in pairings[:, frame_idx]:
+            if current_track >= 0 and current_track in pairings[:, frame_idx]:
                 if current_track in pairings[:, frame_idx]:
                     idx = 0
                     for entry in pairings[:, frame_idx]:
