@@ -545,21 +545,15 @@ def ArUco_SLEAP_matching(
         f"[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Ended, FPS: {round(float(start_end_frame[1] - start_end_frame[0] + 1) / float(RWTTA_end - RWTTA_start), 2)}"
     )
 
-    # Inherit tracks
+    # Inherit tracks -- forward fill
     logger.info(f"[ArUco_SLEAP_matching {start_end_frame}] [Track Inheritance] Running")
-    for current_frame in tag_tracks_2d_array[0, 2:-1]:
-        for row_idx in range(1, len(tags) + 1):
-            # indexing is a bit messy for this array so we make things easier with np.searchsorted.
-            # Not optimal, but much more robust and much more readable than stuffing a ton of arithmetic into the index
-            for column_idx in range(1, tag_tracks_2d_array.shape[1]):
-                if (
-                    tag_tracks_2d_array[row_idx, column_idx] == -1
-                    and current_frame > start_end_frame[0] + half_rolling_window_size
-                ):
-                    logging.info("Inheriting previous tag information on " + str(current_frame))
-                    tag_tracks_2d_array[row_idx, column_idx] = tag_tracks_2d_array[
-                        row_idx, column_idx - 1
-                    ]
+
+    # https://stackoverflow.com/questions/41190852/most-efficient-way-to-forward-fill-nan-values-in-numpy-array
+    mask = tag_tracks_2d_array == -1
+    logger.info(tag_tracks_2d_array[0])
+    idx = np.where(~mask, np.arange(mask.shape[1]), 0)
+    np.maximum.accumulate(idx, axis=1, out=idx)
+    tag_tracks_2d_array = tag_tracks_2d_array[np.arange(idx.shape[0])[:, None], idx]
     logger.info(
         f"[ArUco_SLEAP_matching {start_end_frame}] [Track Inheritance] Finished!"
     )
@@ -608,8 +602,8 @@ def annotate_video_sleap_aruco_pairings(
 
     # Below code heavily based on SLEAP (sleap.io.videowriter.py)
     fps = str(fps)
-    crf = 21
-    preset = "superfast"
+    crf = 28
+    preset = "veryfast"
     writer = skvideo.io.FFmpegWriter(
         video_output_path,
         inputdict={"-r": fps,},
@@ -697,8 +691,8 @@ def annotate_video_sleap_aruco_pairings(
                     image, str(int(current_track)), (pX, pY + 100), font, 2, green, 2
                 )
             except Exception as e:
-                logger.error(f'Exception raised when writing on frame {frame}')
-                logger.error(f'Exception: {e}')
+                logger.error(f"Exception raised when writing on frame {frame}")
+                logger.error(f"Exception: {e}")
                 errors += 1
 
         # Persistent ArUco location plot
