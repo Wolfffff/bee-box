@@ -48,9 +48,8 @@ import multiprocessing
 import concurrent.futures
 from datetime import datetime
 from contextlib import redirect_stdout
-from munkres import Munkres
 from tabulate import tabulate
-
+import scipy
 import aruco_utils_pd as awpd
 
 # Logging: display AND save output
@@ -385,9 +384,6 @@ def ArUco_SLEAP_matching(
     )
     RWTTA_start = time.perf_counter()
 
-    # Munkres is the package for the Hungarian algorithm.
-    m = Munkres()
-
     # This dict stores the cost matrices for individual frames.  The key is the frame number.
     # When we want the cost matrix for a window, we just sum the matrices from the constituent frames.
     frame_cost_matrices_dict = {}
@@ -495,18 +491,25 @@ def ArUco_SLEAP_matching(
             cost_matrix += frame_cost_matrices_dict[window_frame]
 
         # The Hungarian algorithm is designed for square matrices, and bar coincidence (or perfection on both ArUco and SLEAP sides), there will always be a different number of candidate tracks and tags.
+        # TODO: Update comments to reflect scipy.optimize.linear_sum_assignment
         # The Munkres package has automatic padding, but it still wants the matrix to have more columns then rows when doing so.
         # We transpose the matrix when running the Hungarian algorithm if necessary, to make sure that Munkres is happy.
         # If there are fewer tracks than tags, every track gets a tag, and vice versa.
         if len(tracks) < len(tags):
             cost_matrix = np.transpose(cost_matrix)
-            hungarian_result = m.compute(np.copy(cost_matrix))
+            hungarian_result_raw = scipy.optimize.linear_sum_assignment(cost_matrix)
+            hungarian_result = list(
+                zip(hungarian_result_raw[0], hungarian_result_raw[1])
+            )
             hungarian_pairs = []
             for track, tag in hungarian_result:
                 hungarian_pairs.append((tags[tag], tracks[track]))
             cost_matrix = np.transpose(cost_matrix)
         else:
-            hungarian_result = m.compute(np.copy(cost_matrix))
+            hungarian_result_raw = scipy.optimize.linear_sum_assignment(cost_matrix)
+            hungarian_result = list(
+                zip(hungarian_result_raw[0], hungarian_result_raw[1])
+            )
             hungarian_pairs = []
             for tag, track in hungarian_result:
                 if cost_matrix[tag, track] != 0:
@@ -538,7 +541,7 @@ def ArUco_SLEAP_matching(
                 )
             )
             logger.info("\n")
-            logger.info(f"Assigned tag-track pairs: {hungarian_pairs}")
+        logger.info(f"Assigned tag-track pairs: {hungarian_pairs}")
 
     RWTTA_end = time.perf_counter()
     logger.info(
