@@ -490,6 +490,18 @@ def ArUco_SLEAP_matching(
         ):
             cost_matrix += frame_cost_matrices_dict[window_frame]
 
+        # Remove zero rows and columns from cost matrix
+        # Rows
+        idx = np.argwhere(np.all(cost_matrix[:, ...] == 0, axis = 1))
+        cost_matrix = np.delete(cost_matrix, idx, axis = 0)
+        trimmed_tags = np.delete(tags, idx)
+
+        # Columns
+        idx = np.argwhere(np.all(cost_matrix[..., :] == 0, axis = 0))
+        cost_matrix = np.delete(cost_matrix, idx, axis = 1)
+        trimmed_tracks = np.delete(tracks, idx)
+
+
         # The Hungarian algorithm is designed for square matrices, and bar coincidence (or perfection on both ArUco and SLEAP sides), there will always be a different number of candidate tracks and tags.
         # TODO: Update comments to reflect scipy.optimize.linear_sum_assignment
         # The Munkres package has automatic padding, but it still wants the matrix to have more columns then rows when doing so.
@@ -503,7 +515,7 @@ def ArUco_SLEAP_matching(
             )
             hungarian_pairs = []
             for track, tag in hungarian_result:
-                hungarian_pairs.append((tags[tag], tracks[track]))
+                hungarian_pairs.append((trimmed_tags[tag], trimmed_tracks[track]))
             cost_matrix = np.transpose(cost_matrix)
         else:
             hungarian_result_raw = scipy.optimize.linear_sum_assignment(cost_matrix)
@@ -513,19 +525,17 @@ def ArUco_SLEAP_matching(
             hungarian_pairs = []
             for tag, track in hungarian_result:
                 if cost_matrix[tag, track] != 0:
-                    hungarian_pairs.append((tags[tag], tracks[track]))
+                    hungarian_pairs.append((trimmed_tags[tag], trimmed_tracks[track]))
 
         # hungarian_pairs is a collection of tuples holding the raw (tag, track) pairing for this particular frame.
         # We want the pairings to be able to change between frames, so we stick them into the tag_tracks_2d_array
         for tag, track in hungarian_pairs:
             # indexing is a bit messy for this array so we make things easier with np.searchsorted.
             # Not optimal, but much more robust and much more readable than stuffing a ton of arithmetic into the index
-            # We also only want to assign if there's an actual nonzero cost associated... otherwise, this is just a 'filler' pairing from the Hungarian algorithm
-            if cost_matrix[tag_indices[tag], track_indices[track]] != 0:
-                tag_tracks_2d_array[
-                    1 + tag_indices[tag],
-                    np.searchsorted(tag_tracks_2d_array[0, :], center_of_window_frame),
-                ] = track
+            tag_tracks_2d_array[
+                1 + tag_indices[tag],
+                np.searchsorted(tag_tracks_2d_array[0, :], center_of_window_frame),
+            ] = track
 
         if enhanced_output:
             display_matrix = np.copy(np.transpose(cost_matrix.astype(int).astype(str)))
@@ -535,9 +545,9 @@ def ArUco_SLEAP_matching(
                         display_matrix[x, y] = " "
             logger.info(
                 tabulate(
-                    np.transpose(np.vstack([tags.astype(int), display_matrix])),
+                    np.transpose(np.vstack([trimmed_tags.astype(int), display_matrix])),
                     tablefmt="pretty",
-                    headers=tracks,
+                    headers=trimmed_tracks,
                 )
             )
             logger.info("\n")
@@ -812,34 +822,55 @@ def generate_final_output_dataframe(
             thoraxY = float(prediction["y"])
             Theta = np.arctan2(abdomenY - headY, abdomenX - headX)
             current_track = nth_inst_tuple["track"]
-            if current_track >= 0 and current_track in pairings[:, frame_idx]:
-                if current_track in pairings[:, frame_idx]:
-                    idx = 0
-                    for entry in pairings[:, frame_idx]:
-                        if entry == current_track:
-                            current_tag_idx = idx
-                            break
-                        idx += 1
-                    current_tag = pairings[current_tag_idx, 0]
-                    try:
-                        if int(current_tag) >= 0:
-                            output_data.append(
-                                (
-                                    frame,
-                                    int(current_tag),
-                                    cX,
-                                    cY,
-                                    headX,
-                                    headY,
-                                    thoraxX,
-                                    thoraxY,
-                                    abdomenX,
-                                    abdomenY,
-                                    Theta,
-                                )
+            if current_track >= 0 and current_track in pairings[1:-1, frame_idx]:
+                # If there exists a pairing for this particular SLEAP instance
+                # Otherwise, we still append the data, but with tag number -1
+                idx = 0
+                for entry in pairings[:, frame_idx]:
+                    if entry == current_track:
+                        current_tag_idx = idx
+                        break
+                    idx += 1
+                current_tag = pairings[current_tag_idx, 0]
+                try:
+                    if int(current_tag) >= 0:
+                        output_data.append(
+                            (
+                                frame,
+                                int(current_tag),
+                                cX,
+                                cY,
+                                headX,
+                                headY,
+                                thoraxX,
+                                thoraxY,
+                                abdomenX,
+                                abdomenY,
+                                Theta,
                             )
-                    except:
-                        pass
+                        )
+                except:
+                    pass
+
+            else:
+                try:
+                    output_data.append(
+                        (
+                            frame,
+                            -1,
+                            cX,
+                            cY,
+                            headX,
+                            headY,
+                            thoraxX,
+                            thoraxY,
+                            abdomenX,
+                            abdomenY,
+                            Theta,
+                        )
+                    )
+                except:
+                    pass
 
     output_df = pd.DataFrame(
         output_data,
@@ -1100,6 +1131,10 @@ if __name__ == "__main__":
         for result in results_generator:
             results.append(result)
 
+        # Set meaningless corner entry to -1 for cleanliness
+        for idx in range(len(results)):
+            results[idx][0, 0] = -1
+            
         # Collect tags in each of the results
         result_tags = []
         for idx in range(len(assignment_tuples)):
@@ -1114,8 +1149,8 @@ if __name__ == "__main__":
             for tag in all_unique_tags:
                 if not (tag in results[idx][1:-1, 0]):
                     insert_idx = np.searchsorted(
-                        results[idx][1:-1, 0], tag, side="left"
-                    )
+                        results[idx][1:-1, 0], tag
+                    ) + 1
                     results[idx] = np.insert(
                         results[idx],
                         insert_idx,
@@ -1129,11 +1164,16 @@ if __name__ == "__main__":
 
             if enhanced_output:
                 logger.info(results[idx])
+                logger.info('\n')
 
         # Horizontally stack up the results
         pre_stack_results = []
         for idx in range(len(results)):
-            pre_stack_results.append(results[idx][:, 1:-1])
+            # We do this.  With just the below line:
+            # pre_stack_results.append(results[idx][:, 1:-1])
+            # the code somehow drops  the last column of data, which doesn't make any sense to me (dknapp).
+            results[idx] = np.delete(results[idx], 0, axis = 1)
+            pre_stack_results.append(results[idx])
             if enhanced_output:
                 logger.info(np.transpose(pre_stack_results[idx]))
         overall_result = np.hstack(pre_stack_results)
