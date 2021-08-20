@@ -492,15 +492,14 @@ def ArUco_SLEAP_matching(
 
         # Remove zero rows and columns from cost matrix
         # Rows
-        idx = np.argwhere(np.all(cost_matrix[:, ...] == 0, axis = 1))
-        cost_matrix = np.delete(cost_matrix, idx, axis = 0)
+        idx = np.argwhere(np.all(cost_matrix[:, ...] == 0, axis=1))
+        cost_matrix = np.delete(cost_matrix, idx, axis=0)
         trimmed_tags = np.delete(tags, idx)
 
         # Columns
-        idx = np.argwhere(np.all(cost_matrix[..., :] == 0, axis = 0))
-        cost_matrix = np.delete(cost_matrix, idx, axis = 1)
+        idx = np.argwhere(np.all(cost_matrix[..., :] == 0, axis=0))
+        cost_matrix = np.delete(cost_matrix, idx, axis=1)
         trimmed_tracks = np.delete(tracks, idx)
-
 
         # The Hungarian algorithm is designed for square matrices, and bar coincidence (or perfection on both ArUco and SLEAP sides), there will always be a different number of candidate tracks and tags.
         # TODO: Update comments to reflect scipy.optimize.linear_sum_assignment
@@ -616,16 +615,20 @@ def annotate_video_sleap_aruco_pairings(
     # Below code heavily based on SLEAP (sleap.io.videowriter.py)
     fps = str(fps)
     crf = 28
+    scale_factor=2
     preset = "veryfast"
     writer = skvideo.io.FFmpegWriter(
         video_output_path,
-        inputdict={"-r": fps,},
+        inputdict={
+            "-r": fps,
+        },
         outputdict={
             "-c:v": "libx264",
             "-preset": preset,
             "-framerate": fps,
             "-crf": str(crf),
             "-pix_fmt": "yuv420p",
+            "-vf": f"scale=w=iw/{scale_factor}:h=ih/{scale_factor}",
         },  # verbosity = 1
     )
 
@@ -649,6 +652,12 @@ def annotate_video_sleap_aruco_pairings(
         success, image = video_data.read()
         # Find starting point in .slp instances data
         nth_inst_tuple = sleap_instances[current_frame_idx]
+
+        # Skip until our current frame
+        while nth_inst_tuple[2] != frame:  # frame_id
+            current_frame_idx += 1
+            nth_inst_tuple = sleap_instances[current_frame_idx]
+
         while nth_inst_tuple[2] != frame + 1:  # frame_id
             next_frame_idx += 1
             nth_inst_tuple = sleap_instances[next_frame_idx]
@@ -689,12 +698,17 @@ def annotate_video_sleap_aruco_pairings(
                 ]  # start_idx corresponds to the tag
                 pX = int(round(prediction_tuple[0]))
                 pY = int(round(prediction_tuple[1]))
-                image = cv2.circle(image, (pX, pY), 75, green, 2)
+                start_point = (pX - int((crop_size/2)), pY - int((crop_size/2)))
+                end_point = (pX + int((crop_size/2)), pY + int((crop_size/2)))                
+                color = (0,0, 255)
+                thickness = 2
+                image = cv2.rectangle(image, start_point, end_point, color, thickness)
+
                 current_track = int(nth_inst_tuple[4])
                 pairings_frame_idx = np.searchsorted(pairings[0, 1:-1], frame)
                 current_tag = "?"
                 idx = 0
-                for entry in pairings[:, frame]:
+                for entry in pairings[:, pairings_frame_idx]:
                     if entry == current_track and entry >= 0:
                         current_tag = pairings[idx, 0]
                     idx += 1
@@ -733,10 +747,7 @@ def annotate_video_sleap_aruco_pairings(
                     red,
                     2,
                 )
-
         writer.writeFrame(image)
-        # cv2.imshow('', image)
-        # cv2.waitKey(1)
 
         current_frame_idx = next_frame_idx
         previous_frame = frame
@@ -744,7 +755,6 @@ def annotate_video_sleap_aruco_pairings(
     # Do a bit of cleanup
     video_data.release()
     writer.close()
-    cv2.destroyAllWindows()
 
 
 def generate_final_output_dataframe(
@@ -995,6 +1005,13 @@ if __name__ == "__main__":
         type=int,
         default=5,
     )
+    parser.add_argument(
+        "-t",
+        "--threads",
+        help="Used to specific max number of threads used by concurrent.futures.ThreadPoolExecutor",
+        type=int,
+        default=multiprocessing.cpu_count(),
+    )
 
     args = parser.parse_args()
     video_path = args.video_path
@@ -1002,6 +1019,7 @@ if __name__ == "__main__":
     files_folder_path = args.files_folder_path
     start_here_frame = args.start_here_frame
     end_here_frame = args.end_here_frame
+    threads = args.threads
 
     # If files folder doesn't exist, create it!
     if not os.path.exists(files_folder_path):
@@ -1060,7 +1078,7 @@ if __name__ == "__main__":
         # Split the assigned frames into parallel chunks
         # The code is slightly messy because the chunks must overlap by half_rolling_window_size... for details see the docstring for ArUco_sleap_matching
         assignment_tuples = []
-        frames_per_cpu = int((end_here_frame - start_here_frame) / number_of_cpus)
+        frames_per_cpu = int((end_here_frame - start_here_frame) / threads)
 
         assignment_tuples.append(
             (start_here_frame, frames_per_cpu + half_rolling_window_size)
@@ -1113,7 +1131,7 @@ if __name__ == "__main__":
 
         # Start the parallel tasks!
         start = time.perf_counter()
-        with concurrent.futures.ProcessPoolExecutor() as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
             logger.info("[MAIN] Tasks now in queue...")
             results_generator = executor.map(
                 ArUco_SLEAP_matching_wrapper, chunks_to_assign
@@ -1134,7 +1152,7 @@ if __name__ == "__main__":
         # Set meaningless corner entry to -1 for cleanliness
         for idx in range(len(results)):
             results[idx][0, 0] = -1
-            
+
         # Collect tags in each of the results
         result_tags = []
         for idx in range(len(assignment_tuples)):
@@ -1148,9 +1166,7 @@ if __name__ == "__main__":
         for idx in range(len(assignment_tuples)):
             for tag in all_unique_tags:
                 if not (tag in results[idx][1:-1, 0]):
-                    insert_idx = np.searchsorted(
-                        results[idx][1:-1, 0], tag
-                    ) + 1
+                    insert_idx = np.searchsorted(results[idx][1:-1, 0], tag) + 1
                     results[idx] = np.insert(
                         results[idx],
                         insert_idx,
@@ -1164,7 +1180,7 @@ if __name__ == "__main__":
 
             if enhanced_output:
                 logger.info(results[idx])
-                logger.info('\n')
+                logger.info("\n")
 
         # Horizontally stack up the results
         pre_stack_results = []
@@ -1172,7 +1188,7 @@ if __name__ == "__main__":
             # We do this.  With just the below line:
             # pre_stack_results.append(results[idx][:, 1:-1])
             # the code somehow drops  the last column of data, which doesn't make any sense to me (dknapp).
-            results[idx] = np.delete(results[idx], 0, axis = 1)
+            results[idx] = np.delete(results[idx], 0, axis=1)
             pre_stack_results.append(results[idx])
             if enhanced_output:
                 logger.info(np.transpose(pre_stack_results[idx]))
@@ -1240,3 +1256,4 @@ if __name__ == "__main__":
 
 
 # python matching_pipeline.py d:\\20210715_run001_00000000_cut.mp4 d:\\20210725_preds_1200frames.slp d:/matching_testing crop_ArUco_testing False 0 300 True
+# /Genomics/grid/users/swwolf/.conda/envs/sleap/bin/python python matching_pipeline.py -a -v 1 -w 10 -c 75 20210715_run001_00000000_1h.mp4 20210725_preds_71998.slp crop_matching_71998 crop_matching 0 71998
