@@ -615,6 +615,7 @@ def annotate_video_sleap_aruco_pairings(
     # Below code heavily based on SLEAP (sleap.io.videowriter.py)
     fps = str(fps)
     crf = 28
+    scale_factor=2
     preset = "veryfast"
     writer = skvideo.io.FFmpegWriter(
         video_output_path,
@@ -627,6 +628,7 @@ def annotate_video_sleap_aruco_pairings(
             "-framerate": fps,
             "-crf": str(crf),
             "-pix_fmt": "yuv420p",
+            "-vf": f"scale=w=iw/{scale_factor}:h=ih/{scale_factor}",
         },  # verbosity = 1
     )
 
@@ -696,7 +698,12 @@ def annotate_video_sleap_aruco_pairings(
                 ]  # start_idx corresponds to the tag
                 pX = int(round(prediction_tuple[0]))
                 pY = int(round(prediction_tuple[1]))
-                image = cv2.circle(image, (pX, pY), 75, green, 2)
+                start_point = (pX - int((crop_size/2)), pY - int((crop_size/2)))
+                end_point = (pX + int((crop_size/2)), pY + int((crop_size/2)))                
+                color = (0,0, 255)
+                thickness = 2
+                image = cv2.rectangle(image, start_point, end_point, color, thickness)
+
                 current_track = int(nth_inst_tuple[4])
                 pairings_frame_idx = np.searchsorted(pairings[0, 1:-1], frame)
                 current_tag = "?"
@@ -998,6 +1005,13 @@ if __name__ == "__main__":
         type=int,
         default=5,
     )
+    parser.add_argument(
+        "-t",
+        "--threads",
+        help="Used to specific max number of threads used by concurrent.futures.ThreadPoolExecutor",
+        type=int,
+        default=multiprocessing.cpu_count(),
+    )
 
     args = parser.parse_args()
     video_path = args.video_path
@@ -1005,6 +1019,7 @@ if __name__ == "__main__":
     files_folder_path = args.files_folder_path
     start_here_frame = args.start_here_frame
     end_here_frame = args.end_here_frame
+    threads = args.threads
 
     # If files folder doesn't exist, create it!
     if not os.path.exists(files_folder_path):
@@ -1063,7 +1078,7 @@ if __name__ == "__main__":
         # Split the assigned frames into parallel chunks
         # The code is slightly messy because the chunks must overlap by half_rolling_window_size... for details see the docstring for ArUco_sleap_matching
         assignment_tuples = []
-        frames_per_cpu = int((end_here_frame - start_here_frame) / number_of_cpus)
+        frames_per_cpu = int((end_here_frame - start_here_frame) / threads)
 
         assignment_tuples.append(
             (start_here_frame, frames_per_cpu + half_rolling_window_size)
@@ -1116,7 +1131,7 @@ if __name__ == "__main__":
 
         # Start the parallel tasks!
         start = time.perf_counter()
-        with concurrent.futures.ProcessPoolExecutor() as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
             logger.info("[MAIN] Tasks now in queue...")
             results_generator = executor.map(
                 ArUco_SLEAP_matching_wrapper, chunks_to_assign
