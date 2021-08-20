@@ -551,7 +551,7 @@ def ArUco_SLEAP_matching(
                 )
             )
             logger.info("\n")
-        logger.info(f"Assigned tag-track pairs: {hungarian_pairs}")
+            logger.info(f"Assigned tag-track pairs: {hungarian_pairs}")
 
     RWTTA_end = time.perf_counter()
     logger.info(
