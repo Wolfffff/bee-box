@@ -611,7 +611,7 @@ def annotate_video_sleap_aruco_pairings(
     video_data = cv2.VideoCapture(video_path)
     fps = video_data.get(cv2.CAP_PROP_FPS)
     font = cv2.FONT_HERSHEY_SIMPLEX
-    
+
     # Below code heavily based on SLEAP (sleap.io.videowriter.py)
     fps = str(fps)
     crf = 28
@@ -650,6 +650,12 @@ def annotate_video_sleap_aruco_pairings(
         success, image = video_data.read()
         # Find starting point in .slp instances data
         nth_inst_tuple = sleap_instances[current_frame_idx]
+
+        # Skip until our current frame
+        while nth_inst_tuple[2] != frame:  # frame_id
+            current_frame_idx += 1
+            nth_inst_tuple = sleap_instances[current_frame_idx]
+
         while nth_inst_tuple[2] != frame + 1:  # frame_id
             next_frame_idx += 1
             nth_inst_tuple = sleap_instances[next_frame_idx]
@@ -734,10 +740,7 @@ def annotate_video_sleap_aruco_pairings(
                     red,
                     2,
                 )
-
         writer.writeFrame(image)
-        # cv2.imshow('', image)
-        # cv2.waitKey(1)
 
         current_frame_idx = next_frame_idx
         previous_frame = frame
@@ -745,7 +748,6 @@ def annotate_video_sleap_aruco_pairings(
     # Do a bit of cleanup
     video_data.release()
     writer.close()
-    cv2.destroyAllWindows()
 
 
 def generate_final_output_dataframe(
