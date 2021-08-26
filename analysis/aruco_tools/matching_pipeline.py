@@ -1081,7 +1081,7 @@ if __name__ == "__main__":
         frames_per_cpu = int((end_here_frame - start_here_frame) / threads)
 
         assignment_tuples.append(
-            (start_here_frame, frames_per_cpu + half_rolling_window_size)
+            (start_here_frame, start_here_frame + frames_per_cpu + half_rolling_window_size)
         )
 
         while (
