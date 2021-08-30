@@ -199,7 +199,7 @@ def interaction_length_distribution(csv_coordinates_path: str, tag_to_check: int
 	plt.yscale('log')
 	plt.show()
 
-def print_all_long_interactions(csv_coordinates_path: str, output_path: str = './long_interactions_list.csv', maximum_distance_for_interaction_threshold: float = 400., interaction_print_threshold: int = 100, frame_rate: float = 20):
+def print_all_long_interactions(csv_coordinates_path: str, output_path: str = './long_interactions_list.csv', maximum_distance_for_interaction_threshold: float = 400., interaction_print_threshold: int = 100, frame_rate: float = 20, fill_nans: int = 3):
 	'''
 	Go through coordinate CSV files from ../aruco_tools/matching_pipeline.py (should end with '_aruco_data_with_track_numbers.csv') and save all of the long interactions.
 	Results will be outputted as a dataframe in the form of a csv file.
@@ -213,6 +213,7 @@ def print_all_long_interactions(csv_coordinates_path: str, output_path: str = '.
 		 maximum_distance_for_interaction_threshold: maximum distance between bees to be counted as a frame within an interaction
 		 interaction_print_threshold: Minimum duration of interaction in frames to be outputted.
 		 frame_rate: framerate of the video
+		 fill_nans: largest number of consecutive NaNs to fill.
 	'''
 	# Load data
 	coords_df = pd.read_csv(csv_coordinates_path)
@@ -226,11 +227,12 @@ def print_all_long_interactions(csv_coordinates_path: str, output_path: str = '.
 	coords_df = coords_df.reindex(columns=["Frame", "Tag", "thoraxX", "thoraxY"])
 	coords_df = coords_df.set_index("Frame")
 	print(
-		"\nRemoved redundant column(s), set frames as index: \n"
-		+ "---------------------------------------------- \n"
+		f"\nRemoved redundant column(s), set frames as index, filled up to {fill_nans} consecutive NaN sports: \n"
+		+"---------------------------------------------- \n"
 		+ str(coords_df.head())
 		+ "\n\n"
 	)
+	coords_df.fillna(method = 'ffill', limit = fill_nans)
 
 	coords_df = coords_df.loc[coords_df['Tag'] > 0]
 	print(
