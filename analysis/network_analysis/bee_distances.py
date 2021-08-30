@@ -192,7 +192,7 @@ def interaction_length_distribution(csv_coordinates_path: str, tag_to_check: int
 
 		# Print longest distributions:
 		if interaction[0] > interaction_print_threshold:
-			print(f'[Long interaction] Bee {tag_to_check} interacted with bee f{interaction[1]} for {interaction[0]} frames ending in frame {interaction[2]}')
+			print(f'[Long interaction] Bee {tag_to_check} interacted with bee {interaction[1]} for {interaction[0]} frames ending in frame {interaction[2]}')
 
 	plt.hist(output_data, bins = 100)
 	plt.yscale('log')
