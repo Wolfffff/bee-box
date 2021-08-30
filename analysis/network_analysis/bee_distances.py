@@ -1,5 +1,6 @@
 # Stats on inter-bee distance
 
+import time
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -198,6 +199,113 @@ def interaction_length_distribution(csv_coordinates_path: str, tag_to_check: int
 	plt.yscale('log')
 	plt.show()
 
+def print_all_long_interactions(csv_coordinates_path: str, output_path: str = './long_interactions_list.csv', maximum_distance_for_interaction_threshold: float = 400., interaction_print_threshold: int = 100, frame_rate: float = 20):
+	'''
+	Go through coordinate CSV files from ../aruco_tools/matching_pipeline.py (should end with '_aruco_data_with_track_numbers.csv') and save all of the long interactions.
+	Results will be outputted as a dataframe in the form of a csv file.
+	First column: tuple with the two bee tag numbers for the interacting bees.  Smaller tag number comes first.
+	Second column: interaction start timestamp
+	Third column: interaction end timestamp
+
+	Args:
+		csv_coordinates_path: the path to the csv file from ../aruco_tools/matching_pipeline.py (should end with '_aruco_data_with_track_numbers.csv').
+		output_path: output path of csv file containing the interaction data
+		 maximum_distance_for_interaction_threshold: maximum distance between bees to be counted as a frame within an interaction
+		 interaction_print_threshold: Minimum duration of interaction in frames to be outputted.
+		 frame_rate: framerate of the video
+	'''
+	# Load data
+	coords_df = pd.read_csv(csv_coordinates_path)
+	print(
+		"\nLoaded csv file with following head: \n"
+		+ "---------------------------------------------- \n"
+		+ str(coords_df.head())
+		+ "\n"
+	)
+
+	coords_df = coords_df.reindex(columns=["Frame", "Tag", "thoraxX", "thoraxY"])
+	coords_df = coords_df.set_index("Frame")
+	print(
+		"\nRemoved redundant column(s), set frames as index: \n"
+		+ "---------------------------------------------- \n"
+		+ str(coords_df.head())
+		+ "\n\n"
+	)
+
+	coords_df = coords_df.loc[coords_df['Tag'] > 0]
+	print(
+		"\nRemoved unidentified bee data points: \n"
+		+ "---------------------------------------------- \n"
+		+ str(coords_df.head())
+		+ "\n\n"
+	)
+
+	# Collect distances
+	distances = []
+	interactions_list = []
+	frames = coords_df.index.values
+	unique_frames = np.sort(np.unique(frames))
+	print('Computing distances...')
+
+	unique_tags = np.sort(pd.unique(coords_df['Tag']))
+	print(unique_tags)
+
+	for tag_to_check in unique_tags:
+		# Dict of interaction lengths by tag number.  Key is tag number, value is interaction lengths.
+		current_interaction_partners = {}
+
+		# List of interactions that finished: [interaction length in frames, interaction partner bee tag number, end of interaction frame number]
+		finished_interactions = []
+
+		print(f'Checking interactions between tag {tag_to_check} and larger tag numbers.')
+		for frame in progressBar(unique_frames):
+			# Uncomment for debugging to speed things up
+			# if frame > 1000:
+			# 	break
+			# print('\n')
+			frame_df = coords_df.loc[frame]
+			tag_to_check_df = frame_df.loc[frame_df['Tag'] == tag_to_check]
+			# If we have data for the tag to check
+			# print(str(tag_to_check_df))
+			if len(tag_to_check_df.index) == 1:
+				tag_to_check_coords = (tag_to_check_df.loc[frame]['thoraxX'], tag_to_check_df.loc[frame]['thoraxY'])
+				frame_df = frame_df.loc[frame_df['Tag'] != tag_to_check]
+				# print(str(frame_df))
+				# Iterate through the remaining rows and collect distances
+				for row in frame_df.itertuples():
+					distance = euclidean_distance((row.thoraxX, row.thoraxY), tag_to_check_coords)
+					tag_number = int(row.Tag)
+					if tag_number > tag_to_check:
+						if (tag_number not in current_interaction_partners.keys()):
+							# If there's a tag showing up in the data that isn't in our dict of interaction lengths, add it.
+							current_interaction_partners[tag_number] = 0
+						if distance <= maximum_distance_for_interaction_threshold:
+							current_interaction_partners[tag_number] += 1
+						elif current_interaction_partners[tag_number] > 0:
+								finished_interactions.append([current_interaction_partners[tag_number], tag_number, frame])
+								current_interaction_partners[tag_number] = 0
+
+		for interaction in finished_interactions:
+			# Print longest distributions:
+			if interaction[0] > interaction_print_threshold:
+				if interaction[2] - interaction[1] == 0:
+					start_time = '00:00:00'
+				else:
+					start_time = time.strftime('%H:%M:%S', time.gmtime((interaction[2] - interaction[1]) / frame_rate))
+				end_time = time.strftime('%H:%M:%S', time.gmtime((interaction[2]) / frame_rate))
+				print(f'[Long interaction] Bee {tag_to_check} interacted with bee {interaction[1]} during the interval {start_time} - {end_time}')
+				interactions_list.append(((int(tag_to_check), int(interaction[1])), str(start_time), str(end_time)))
+
+	interactions_df = pd.DataFrame(interactions_list, columns = ["Bees", "Start", "END"])
+	print('\n')
+	print(interactions_df)
+
+	# Save
+	interactions_df.to_csv(output_path)
+
+
+
 if __name__ == '__main__':
 	# distance_distribution('d:/crop_matching_aruco_data_with_track_numbers.csv', 31)
-	interaction_length_distribution('d:/crop_matching_aruco_data_with_track_numbers.csv', 31, maximum_distance_for_interaction_threshold = 400.)
+	# interaction_length_distribution('d:/crop_matching_aruco_data_with_track_numbers.csv', 31, maximum_distance_for_interaction_threshold = 400.)
+	print_all_long_interactions('d:/crop_matching_aruco_data_with_track_numbers.csv')
