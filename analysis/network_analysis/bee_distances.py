@@ -199,7 +199,7 @@ def interaction_length_distribution(csv_coordinates_path: str, tag_to_check: int
 	plt.yscale('log')
 	plt.show()
 
-def print_all_long_interactions(csv_coordinates_path: str, output_path: str = './long_interactions_list.csv', maximum_distance_for_interaction_threshold: float = 400., interaction_print_threshold: int = 100, frame_rate: float = 20, fill_nans: int = 3):
+def print_all_long_interactions(csv_coordinates_path: str, output_path: str = './long_interactions_list.csv', maximum_distance_for_interaction_threshold: float = 400., interaction_print_threshold: int = 100, frame_rate: float = 20, fill_nans: int = 10):
 	'''
 	Go through coordinate CSV files from ../aruco_tools/matching_pipeline.py (should end with '_aruco_data_with_track_numbers.csv') and save all of the long interactions.
 	Results will be outputted as a dataframe in the form of a csv file.
@@ -210,10 +210,10 @@ def print_all_long_interactions(csv_coordinates_path: str, output_path: str = '.
 	Args:
 		csv_coordinates_path: the path to the csv file from ../aruco_tools/matching_pipeline.py (should end with '_aruco_data_with_track_numbers.csv').
 		output_path: output path of csv file containing the interaction data
-		 maximum_distance_for_interaction_threshold: maximum distance between bees to be counted as a frame within an interaction
-		 interaction_print_threshold: Minimum duration of interaction in frames to be outputted.
-		 frame_rate: framerate of the video
-		 fill_nans: largest number of consecutive NaNs to fill.
+		maximum_distance_for_interaction_threshold: maximum distance between bees to be counted as a frame within an interaction
+		interaction_print_threshold: Minimum duration of interaction in frames to be outputted.
+		frame_rate: framerate of the video
+		fill_nans: largest number of consecutive NaNs to fill.
 	'''
 	# Load data
 	coords_df = pd.read_csv(csv_coordinates_path)
@@ -232,7 +232,8 @@ def print_all_long_interactions(csv_coordinates_path: str, output_path: str = '.
 		+ str(coords_df.head())
 		+ "\n\n"
 	)
-	coords_df.fillna(method = 'ffill', limit = fill_nans)
+	columns_to_fill = ['cX', 'cY']
+	coords_df.loc[:, columns_to_fill] = df.loc[:, columns_to_fill].interpolate(method = 'linear', limit = fill_nans)
 
 	coords_df = coords_df.loc[coords_df['Tag'] > 0]
 	print(
@@ -308,6 +309,23 @@ def print_all_long_interactions(csv_coordinates_path: str, output_path: str = '.
 
 
 if __name__ == '__main__':
-	# distance_distribution('d:/crop_matching_aruco_data_with_track_numbers.csv', 31)
-	# interaction_length_distribution('d:/crop_matching_aruco_data_with_track_numbers.csv', 31, maximum_distance_for_interaction_threshold = 400.)
-	print_all_long_interactions('d:/crop_matching_aruco_data_with_track_numbers.csv')
+	parser = argparse.ArgumentParser(
+	    description="Utilities to help understand raw output from matching pipeline.  Adjust parameters in code.  Command line is just something to make it easy to call the code on multiple files."
+	)
+	parser.add_argument(
+	    "csv_path",
+	    help="the path to the csv file from ../aruco_tools/matching_pipeline.py (should end with '_aruco_data_with_track_numbers.csv').",
+	    type=str,
+	)
+	parser.add_argument(
+		"processing_step",
+		help="how to process the raw data from the input csv.",
+		choices=["distance_distribution", "interaction_length_distribution", "print_all_long_interactions"],
+	)
+
+	if help == 'distance_distribution':
+		distance_distribution(csv_path, 31)
+	elif:
+		interaction_length_distribution(csv_path, 31, maximum_distance_for_interaction_threshold = 400.)
+	elif:
+		print_all_long_interactions(csv_path)
