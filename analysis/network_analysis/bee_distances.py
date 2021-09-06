@@ -323,9 +323,11 @@ if __name__ == '__main__':
 		choices=["distance_distribution", "interaction_length_distribution", "print_all_long_interactions"],
 	)
 
-	if help == 'distance_distribution':
-		distance_distribution(csv_path, 31)
-	elif:
-		interaction_length_distribution(csv_path, 31, maximum_distance_for_interaction_threshold = 400.)
-	elif:
-		print_all_long_interactions(csv_path)
+	args = parser.parse_args()
+
+	if args.processing_step == 'distance_distribution':
+		distance_distribution(args.csv_path, 31)
+	elif args.processing_step == 'interaction_length_distribution':
+		interaction_length_distribution(args.csv_path, 31, maximum_distance_for_interaction_threshold = 400.)
+	elif args.processing_step == 'print_all_long_interactions':
+		print_all_long_interactions(args.csv_path)
