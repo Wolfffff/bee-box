@@ -98,6 +98,17 @@ def get_edges_list(slp_json: str):
 
     return edges_list
 
+def find_min_idx(x):
+    '''
+    Args:
+            x: 2D array
+
+    Find the coordinates of the minimum value in a 2D array.
+    Code stolen (and slightly slightly modified) from https://stackoverflow.com/questions/30180241/numpy-get-the-column-and-row-index-of-the-minimum-value-of-a-2d-array
+    '''
+    k = x.argmin()
+    ncol = x.shape[1]
+    return k//ncol, k%ncol
 
 def ArUco_SLEAP_matching_wrapper(p):
     # Allow ArUco_SLEAP_matching to be called by passing the arguments as a tuple.
@@ -117,6 +128,7 @@ def ArUco_SLEAP_matching(
     sleap_instances=None,
     sleap_frames=None,
     tag_node=0,
+    hungarian_matching=True,
 ) -> np.ndarray:
     """
     Args:
@@ -235,7 +247,7 @@ def ArUco_SLEAP_matching(
     logger.info(
         f"[ArUco_SLEAP_matching {start_end_frame}] [SLEAP-cropped ArUco] Initializing variables..."
     )
-    # We currently use the collection of 50 tags with 4 x 4 = 16 pixels.
+    # We currently use the collection of 100 tags with 4 x 4 = 16 pixels.
     # define names of a few possible ArUco tag OpenCV supports
     ARUCO_DICT = {
         "DICT_4X4_50": cv2.aruco.DICT_4X4_50,
@@ -243,7 +255,7 @@ def ArUco_SLEAP_matching(
         "DICT_5X5_50": cv2.aruco.DICT_5X5_50,
         "DICT_5X5_100": cv2.aruco.DICT_5X5_100,
     }
-    tagset_name = "DICT_4X4_50"
+    tagset_name = "DICT_4X4_100"
     arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT[tagset_name])
     arucoParams = cv2.aruco.DetectorParameters_create()
     arucoParams.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
@@ -259,7 +271,7 @@ def ArUco_SLEAP_matching(
     arucoParams.perspectiveRemoveIgnoredMarginPerCell = 0.13
 
     # If false positives are a problem, lower this parameter.
-    arucoParams.errorCorrectionRate = 0
+    arucoParams.errorCorrectionRate = 0.
 
     # Appending results to a list is cheaper than appending them to a dataframe.
     results_array = []
@@ -449,9 +461,14 @@ def ArUco_SLEAP_matching(
                 tag_indices[int(row.Tag)], track_indices[int(row.Track)]
             ] -= 1
 
-    logger.info(
-        f"[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Starting Hungarian assignments with rolling window"
-    )
+    if hungarian_matching:
+        logger.info(
+            f"[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Starting Hungarian assignments with rolling window"
+        )
+    else:
+        logger.info(
+            f"[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Starting Greedy assignments with rolling window"
+        )
     # Start rolling the window forward.
     for center_of_window_frame in range(
         start_end_frame[0] + half_rolling_window_size + 1,
@@ -490,41 +507,53 @@ def ArUco_SLEAP_matching(
         ):
             cost_matrix += frame_cost_matrices_dict[window_frame]
 
-        # Remove zero rows and columns from cost matrix
-        # Rows
-        idx = np.argwhere(np.all(cost_matrix[:, ...] == 0, axis=1))
-        cost_matrix = np.delete(cost_matrix, idx, axis=0)
-        trimmed_tags = np.delete(tags, idx)
+        if hungarian_matching:
+            # Remove zero rows and columns from cost matrix
+            # Rows
+            idx = np.argwhere(np.all(cost_matrix[:, ...] == 0, axis=1))
+            cost_matrix = np.delete(cost_matrix, idx, axis=0)
+            trimmed_tags = np.delete(tags, idx)
 
-        # Columns
-        idx = np.argwhere(np.all(cost_matrix[..., :] == 0, axis=0))
-        cost_matrix = np.delete(cost_matrix, idx, axis=1)
-        trimmed_tracks = np.delete(tracks, idx)
+            # Columns
+            idx = np.argwhere(np.all(cost_matrix[..., :] == 0, axis=0))
+            cost_matrix = np.delete(cost_matrix, idx, axis=1)
+            trimmed_tracks = np.delete(tracks, idx)
 
-        # The Hungarian algorithm is designed for square matrices, and bar coincidence (or perfection on both ArUco and SLEAP sides), there will always be a different number of candidate tracks and tags.
-        # TODO: Update comments to reflect scipy.optimize.linear_sum_assignment
-        # The Munkres package has automatic padding, but it still wants the matrix to have more columns then rows when doing so.
-        # We transpose the matrix when running the Hungarian algorithm if necessary, to make sure that Munkres is happy.
-        # If there are fewer tracks than tags, every track gets a tag, and vice versa.
-        if len(tracks) < len(tags):
-            cost_matrix = np.transpose(cost_matrix)
-            hungarian_result_raw = scipy.optimize.linear_sum_assignment(cost_matrix)
-            hungarian_result = list(
-                zip(hungarian_result_raw[0], hungarian_result_raw[1])
-            )
-            hungarian_pairs = []
-            for track, tag in hungarian_result:
-                hungarian_pairs.append((trimmed_tags[tag], trimmed_tracks[track]))
-            cost_matrix = np.transpose(cost_matrix)
-        else:
-            hungarian_result_raw = scipy.optimize.linear_sum_assignment(cost_matrix)
-            hungarian_result = list(
-                zip(hungarian_result_raw[0], hungarian_result_raw[1])
-            )
-            hungarian_pairs = []
-            for tag, track in hungarian_result:
-                if cost_matrix[tag, track] != 0:
+            # The Hungarian algorithm is designed for square matrices, and bar coincidence (or perfection on both ArUco and SLEAP sides), there will always be a different number of candidate tracks and tags.
+            # TODO: Update comments to reflect scipy.optimize.linear_sum_assignment
+            # The Munkres package has automatic padding, but it still wants the matrix to have more columns then rows when doing so.
+            # We transpose the matrix when running the Hungarian algorithm if necessary, to make sure that Munkres is happy.
+            # If there are fewer tracks than tags, every track gets a tag, and vice versa.
+            if len(tracks) < len(tags):
+                cost_matrix = np.transpose(cost_matrix)
+                hungarian_result_raw = scipy.optimize.linear_sum_assignment(cost_matrix)
+                hungarian_result = list(
+                    zip(hungarian_result_raw[0], hungarian_result_raw[1])
+                )
+                hungarian_pairs = []
+                for track, tag in hungarian_result:
                     hungarian_pairs.append((trimmed_tags[tag], trimmed_tracks[track]))
+                cost_matrix = np.transpose(cost_matrix)
+            else:
+                hungarian_result_raw = scipy.optimize.linear_sum_assignment(cost_matrix)
+                hungarian_result = list(
+                    zip(hungarian_result_raw[0], hungarian_result_raw[1])
+                )
+                hungarian_pairs = []
+                for tag, track in hungarian_result:
+                    if cost_matrix[tag, track] != 0:
+                        hungarian_pairs.append((trimmed_tags[tag], trimmed_tracks[track]))
+        else:
+            # Quick & dirty greedy matching algorithm.
+            # Take the lowest cost, assign, and delete.
+            # We don't even worry about equal minimums.
+            hungarian_pairs = []
+            while True:
+                tag, track = find_min_idx(cost_matrix)
+                if cost_matrix[tag, track] >= 0:
+                    break
+                cost_matrix[tag, track] = 0
+                hungarian_pairs.append((tags[tag], tracks[track]))
 
         # hungarian_pairs is a collection of tuples holding the raw (tag, track) pairing for this particular frame.
         # We want the pairings to be able to change between frames, so we stick them into the tag_tracks_2d_array
@@ -537,6 +566,17 @@ def ArUco_SLEAP_matching(
             ] = track
 
         if enhanced_output:
+            # Remove zero rows and columns from cost matrix
+            # Rows
+            idx = np.argwhere(np.all(cost_matrix[:, ...] == 0, axis=1))
+            cost_matrix = np.delete(cost_matrix, idx, axis=0)
+            trimmed_tags = np.delete(tags, idx)
+
+            # Columns
+            idx = np.argwhere(np.all(cost_matrix[..., :] == 0, axis=0))
+            cost_matrix = np.delete(cost_matrix, idx, axis=1)
+            trimmed_tracks = np.delete(tracks, idx)
+            
             display_matrix = np.copy(np.transpose(cost_matrix.astype(int).astype(str)))
             for x in range(display_matrix.shape[0]):
                 for y in range(display_matrix.shape[1]):
@@ -811,22 +851,22 @@ def generate_final_output_dataframe(
             nth_inst_tuple = sleap_instances[idx]
             prediction_start_idx = nth_inst_tuple["point_id_start"]
             prediction = sleap_predictions[
-                int(prediction_start_idx + skeleton_dict["tag"])
+                int(prediction_start_idx + skeleton_dict["Tag"])
             ]
             cX = float(prediction["x"])
             cY = float(prediction["y"])
             prediction = sleap_predictions[
-                int(prediction_start_idx + skeleton_dict["head"])
+                int(prediction_start_idx + skeleton_dict["Head"])
             ]
             headX = float(prediction["x"])
             headY = float(prediction["y"])
             prediction = sleap_predictions[
-                int(prediction_start_idx + skeleton_dict["abdomen"])
+                int(prediction_start_idx + skeleton_dict["Abdomen"])
             ]
             abdomenX = float(prediction["x"])
             abdomenY = float(prediction["y"])
             prediction = sleap_predictions[
-                int(prediction_start_idx + skeleton_dict["thorax"])
+                int(prediction_start_idx + skeleton_dict["Thorax"])
             ]
             thoraxX = float(prediction["x"])
             thoraxY = float(prediction["y"])
@@ -916,29 +956,37 @@ if __name__ == "__main__":
     # Here's an example of how one might run this (if you run this on tiger.princeton.edu, it should work verbatim!):
     # python /tigress/dknapp/scripts/matching_pipeline.py /tigress/dknapp/sleap_videos/20210715_run001_00000000.mp4 /tigress/dknapp/sleap_videos/20210715_run001_00000000.mp4.predictions.slp /tigress/dknapp/scripts/matching_work 20210715_run001_1min_full_pipline_test 0 12000 -a -p -v 1
 
+    # Just a nice litte counter to keep track of the total runtime of the pipeline
+    total_runtime_start = time.perf_counter()
+
     parser = argparse.ArgumentParser(
         description="Import SLEAP data, locate ArUco tags, and output SLEAP tracks with corresponding ArUco tag."
     )
+
     parser.add_argument(
         "video_path",
         help="The filepath of the video (preferably re-encoded as .mp4) to generate coordinates from as input, requires corresponding SLEAP (.slp) file.",
         type=str,
     )
+
     parser.add_argument(
         "slp_file_path",
         help="The filepath of the SLEAP (.slp) file to generate coordinates from, corresponding with the input video file.",
         type=str,
     )
+
     parser.add_argument(
         "files_folder_path",
         help="The filepath of a directory to save output files in. If the directory does not exist, it will be created, or failing that, an error will be thrown.",
         type=str,
     )
+
     parser.add_argument(
         "name_stem",
         help="A string to include as stems of filenames saved to files_folder_path.",
         type=str,
     )
+
     parser.add_argument(
         "start_here_frame",
         help="First frame in assignment.  NOTE: The first frame with data output is not this frame.  See comments in source code for more info.",
@@ -956,12 +1004,14 @@ if __name__ == "__main__":
         help="Output a video with annotations (circles around bees with track and tag numbers; markings for ArUco tag detections).",
         action="store_true",
     )
+
     parser.add_argument(
         "-p",
         "--parallelize",
         help="Parallelize computation for more speed.  Only use for long runs (> 10^4 frames) because there is overhead associated with parallelization.  In shorter runs, single-threaded computation is faster and easier.",
         action="store_true",
     )
+
     parser.add_argument(
         "-d",
         "--display",
@@ -984,6 +1034,7 @@ if __name__ == "__main__":
         choices=[0, 1],
         default=0,
     )
+
     parser.add_argument(
         "-m",
         "--minimum_sleap_score",
@@ -991,6 +1042,7 @@ if __name__ == "__main__":
         type=float,
         default=0.1,
     )
+
     parser.add_argument(
         "-c",
         "--crop_size",
@@ -998,6 +1050,7 @@ if __name__ == "__main__":
         type=int,
         default=50,
     )
+
     parser.add_argument(
         "-w",
         "--half_rolling_window_size",
@@ -1005,12 +1058,20 @@ if __name__ == "__main__":
         type=int,
         default=5,
     )
+
     parser.add_argument(
         "-t",
         "--threads",
         help="Used to specific max number of threads used by concurrent.futures.ThreadPoolExecutor",
         type=int,
         default=multiprocessing.cpu_count(),
+    )
+
+    parser.add_argument(
+        "-hm",
+        "--hungarian",
+        help="Use hungarian matching for cost matrix opimization in tag-track matching.  Much slower, but guaranteed to minimuze overall cost.",
+        action="store_true",
     )
 
     args = parser.parse_args()
@@ -1122,7 +1183,8 @@ if __name__ == "__main__":
                     sleap_predictions,
                     sleap_instances,
                     sleap_frames,
-                    skeleton_dict["tag"],
+                    skeleton_dict["Tag"],
+                    args.hungarian
                 )
             )
             logger.info(f"[MAIN] Created assignment for {chunk}")
@@ -1213,7 +1275,8 @@ if __name__ == "__main__":
             sleap_predictions,
             sleap_instances,
             sleap_frames,
-            skeleton_dict["tag"],
+            skeleton_dict["Tag"],
+            args.hungarian
         )
         if enhanced_output:
             logger.info(np.transpose(pairings))
@@ -1254,6 +1317,8 @@ if __name__ == "__main__":
             range(start_here_frame, end_here_frame),
         )
 
+    total_runtime_end = time.perf_counter()
+    logger.info(f'Total runtime of matching pipline: {total_runtime_end - total_runtime_start}')
 
 # python matching_pipeline.py d:\\20210715_run001_00000000_cut.mp4 d:\\20210725_preds_1200frames.slp d:/matching_testing crop_ArUco_testing False 0 300 True
 # /Genomics/grid/users/swwolf/.conda/envs/sleap/bin/python python matching_pipeline.py -a -v 1 -w 10 -c 75 20210715_run001_00000000_1h.mp4 20210725_preds_71998.slp crop_matching_71998 crop_matching 0 71998
