@@ -302,7 +302,7 @@ def ArUco_SLEAP_matching(
             # Load the new frame
             success, frame = vs.read()
             if enhanced_output and row.Frame != start_end_frame[0]:
-                logger.info(f"Frame {previous_frame}: {detections} tag(s)")
+                logger.info(f"Frame {previous_frame}: {detections} tag(s), FPS: {round((previous_frame + 1.) / (time.perf_counter() - ScA_start), 2)}")
                 detections = 0
 
         # Only bother with this if the frame could be succesfully loaded.
@@ -576,7 +576,7 @@ def ArUco_SLEAP_matching(
             idx = np.argwhere(np.all(cost_matrix[..., :] == 0, axis=0))
             cost_matrix = np.delete(cost_matrix, idx, axis=1)
             trimmed_tracks = np.delete(tracks, idx)
-            
+
             display_matrix = np.copy(np.transpose(cost_matrix.astype(int).astype(str)))
             for x in range(display_matrix.shape[0]):
                 for y in range(display_matrix.shape[1]):
@@ -591,6 +591,7 @@ def ArUco_SLEAP_matching(
             )
             logger.info("\n")
             logger.info(f"Assigned tag-track pairs: {hungarian_pairs}")
+            logger.info(f"FPS: {round((previous_frame + 1.) / (time.perf_counter() - RWTTA_start), 2)}")
 
     RWTTA_end = time.perf_counter()
     logger.info(
