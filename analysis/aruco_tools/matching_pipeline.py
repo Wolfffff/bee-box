@@ -548,11 +548,12 @@ def ArUco_SLEAP_matching(
             # Take the lowest cost, assign, and delete.
             # We don't even worry about equal minimums.
             hungarian_pairs = []
+            cost_matrix_copy = cost_matrix.copy()
             while True:
-                tag, track = find_min_idx(cost_matrix)
-                if cost_matrix[tag, track] >= 0:
+                tag, track = find_min_idx(cost_matrix_copy)
+                if cost_matrix_copy[tag, track] >= 0:
                     break
-                cost_matrix[tag, track] = 0
+                cost_matrix_copy[tag, track] = 0
                 hungarian_pairs.append((tags[tag], tracks[track]))
 
         # hungarian_pairs is a collection of tuples holding the raw (tag, track) pairing for this particular frame.
