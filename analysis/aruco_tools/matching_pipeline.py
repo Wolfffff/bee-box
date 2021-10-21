@@ -293,7 +293,7 @@ def ArUco_SLEAP_matching(
     previous_frame = start_end_frame[0] - 1
     # This variable counts tags detected; only relevant for enhanced_output = True
     detections = 0
-    for row in sleap_predictions_df.itertuples():
+    for row in tqdm(sleap_predictions_df.itertuples()):
         # If we've moved onto processing a new frame
         if previous_frame != row.Frame:
             # vs.set involves going to the nearest keyframe and then traversing the video from there.
