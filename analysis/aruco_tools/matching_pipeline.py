@@ -57,7 +57,6 @@ import aruco_utils_pd as awpd
 # Logging: display AND save output
 logger = logging.getLogger("matching_pipeline_logger")
 logger.setLevel(logging.DEBUG)
-logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 def sleap_reader(slp_predictions_path: str) -> h5py.File:
@@ -247,6 +246,7 @@ def ArUco_SLEAP_matching(
         f"[ArUco_SLEAP_matching {start_end_frame}] [SLEAP-cropped ArUco] Started"
     )
     ScA_start = time.perf_counter()
+    prev_frame_time = ScA_start
 
     logger.info(
         f"[ArUco_SLEAP_matching {start_end_frame}] [SLEAP-cropped ArUco] Initializing variables..."
@@ -293,81 +293,95 @@ def ArUco_SLEAP_matching(
     previous_frame = start_end_frame[0] - 1
     # This variable counts tags detected; only relevant for enhanced_output = True
     detections = 0
-    for row in sleap_predictions_df.itertuples():
-        # If we've moved onto processing a new frame
-        if previous_frame != row.Frame:
-            # vs.set involves going to the nearest keyframe and then traversing the video from there.
-            # As such, it's very computationally intensive.
-            # We only want to call it when a frame is skipped; otherwise we're only traversing sequentially anyways.
-            # Frame skips should only occur in the UNLIKELY scenario that a frame has NO SLEAP data... Maybe a camera glitch or a temporary obstruction.
-            if previous_frame != row.Frame - 1:
-                vs.set(cv2.CAP_PROP_POS_FRAMES, int(row.Frame))
+    iterations = 0
+    with tqdm(
+        total=len(sleap_predictions_df.index), desc="SLEAP instances processed"
+    ) as pbar:
+        for row in sleap_predictions_df.itertuples():
+            pbar.update(1)
+            # If we've moved onto processing a new frame
+            if previous_frame != row.Frame:
+                # vs.set involves going to the nearest keyframe and then traversing the video from there.
+                # As such, it's very computationally intensive.
+                # We only want to call it when a frame is skipped; otherwise we're only traversing sequentially anyways.
+                # Frame skips should only occur in the UNLIKELY scenario that a frame has NO SLEAP data... Maybe a camera glitch or a temporary obstruction.
+                if previous_frame != row.Frame - 1:
+                    vs.set(cv2.CAP_PROP_POS_FRAMES, int(row.Frame))
 
-            # Load the new frame
-            success, frame = vs.read()
-            if enhanced_output and row.Frame != start_end_frame[0]:
-                logger.info(
-                    f"Frame {previous_frame}: {detections} tag(s), FPS: {round((previous_frame + 1.) / (time.perf_counter() - ScA_start), 2)}"
+                # Load the new frame
+                success, frame = vs.read()
+                if enhanced_output and row.Frame != start_end_frame[0]:
+                    this_frame_time = time.perf_counter()
+                    logger.info(
+                        f"Frame {previous_frame}: {detections} tag(s), FPS: {round(1. / (this_frame_time - prev_frame_time), 2)}"
+                    )
+                    prev_frame_time = this_frame_time
+                    detections = 0
+
+            # Only bother with this if the frame could be succesfully loaded.
+            # Obviously, no point in trying to run ArUco on junk data
+            if success:
+                cropped_area = frame[
+                    np.maximum(int(row.cY) - crop_size, 0) : np.minimum(
+                        int(row.cY) + crop_size, frame.shape[0] - 1
+                    ),
+                    np.maximum(int(row.cX) - crop_size, 0) : np.minimum(
+                        int(row.cX) + crop_size, frame.shape[1] - 1
+                    ),
+                    0,
+                ]
+
+                # Display cropped tags.
+                # This is useful for diagnosing whether the parameter crop_size is set to a reasonable value.
+                if display_images_cv2:
+                    cv2.imshow("cropped area", cv2.resize(cropped_area, (500, 500)))
+                    cv2.waitKey(0)
+
+                # Run ArUco
+                (corners, ids, rejected) = cv2.aruco.detectMarkers(
+                    cropped_area, arucoDict, parameters=arucoParams
                 )
-                detections = 0
 
-        # Only bother with this if the frame could be succesfully loaded.
-        # Obviously, no point in trying to run ArUco on junk data
-        if success:
-            cropped_area = frame[
-                np.maximum(int(row.cY) - crop_size, 0) : np.minimum(
-                    int(row.cY) + crop_size, frame.shape[0] - 1
-                ),
-                np.maximum(int(row.cX) - crop_size, 0) : np.minimum(
-                    int(row.cX) + crop_size, frame.shape[1] - 1
-                ),
-                0,
-            ]
+                # If we detected any tags
+                if len(corners) > 0:
+                    # Add the number of detected tags to the detections count
+                    detections += len(corners)
 
-            # Display cropped tags.
-            # This is useful for diagnosing whether the parameter crop_size is set to a reasonable value.
-            if display_images_cv2:
-                cv2.imshow("cropped area", cv2.resize(cropped_area, (500, 500)))
-                cv2.waitKey(0)
+                    # Iterate through detected tags and append results to a results list
+                    # As before in the SLEAP preprocessing step, appending to a list is cheaper so we do so and then instantiate a dataframe.
+                    for (markerCorner, markerID) in zip(corners, ids):
+                        corners = markerCorner.reshape((4, 2))
+                        (topLeft, topRight, bottomRight, bottomLeft) = corners
 
-            # Run ArUco
-            (corners, ids, rejected) = cv2.aruco.detectMarkers(
-                cropped_area, arucoDict, parameters=arucoParams
-            )
+                        # convert each of the (x, y)-coordinate pairs to integers
+                        topRight = (topRight[0], topRight[1])
+                        bottomRight = (bottomRight[0], bottomRight[1])
+                        bottomLeft = (bottomLeft[0], bottomLeft[1])
+                        topLeft = (topLeft[0], topLeft[1])
 
-            # If we detected any tags
-            if len(corners) > 0:
-                # Add the number of detected tags to the detections count
-                detections += len(corners)
+                        # Calculate centroid x a
+                        cX = (topLeft[0] + bottomRight[0]) / 2.0
+                        cY = (topLeft[1] + bottomRight[1]) / 2.0
 
-                # Iterate through detected tags and append results to a results list
-                # As before in the SLEAP preprocessing step, appending to a list is cheaper so we do so and then instantiate a dataframe.
-                for (markerCorner, markerID) in zip(corners, ids):
-                    corners = markerCorner.reshape((4, 2))
-                    (topLeft, topRight, bottomRight, bottomLeft) = corners
+                        # Calculate tag rotation.
+                        # This doesn't really work all that well... doesn't hurt to have though.
+                        Theta = np.arctan2(
+                            topRight[1] - bottomLeft[1], topRight[0] - bottomLeft[0]
+                        )
 
-                    # convert each of the (x, y)-coordinate pairs to integers
-                    topRight = (topRight[0], topRight[1])
-                    bottomRight = (bottomRight[0], bottomRight[1])
-                    bottomLeft = (bottomLeft[0], bottomLeft[1])
-                    topLeft = (topLeft[0], topLeft[1])
+                        # 'Frame', 'Track', 'Tag', 'cX','cY', 'Theta'
+                        results_array.append(
+                            (
+                                row.Frame,
+                                row.Track,
+                                int(markerID[0]),
+                                row.cX,
+                                row.cY,
+                                Theta,
+                            )
+                        )
 
-                    # Calculate centroid x a
-                    cX = (topLeft[0] + bottomRight[0]) / 2.0
-                    cY = (topLeft[1] + bottomRight[1]) / 2.0
-
-                    # Calculate tag rotation.
-                    # This doesn't really work all that well... doesn't hurt to have though.
-                    Theta = np.arctan2(
-                        topRight[1] - bottomLeft[1], topRight[0] - bottomLeft[0]
-                    )
-
-                    # 'Frame', 'Track', 'Tag', 'cX','cY', 'Theta'
-                    results_array.append(
-                        (row.Frame, row.Track, int(markerID[0]), row.cX, row.cY, Theta)
-                    )
-
-        previous_frame = row.Frame
+            previous_frame = row.Frame
 
     if enhanced_output:
         logger.info(
@@ -401,6 +415,7 @@ def ArUco_SLEAP_matching(
         f"[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Started"
     )
     RWTTA_start = time.perf_counter()
+    prev_frame_time = RWTTA_start
 
     # This dict stores the cost matrices for individual frames.  The key is the frame number.
     # When we want the cost matrix for a window, we just sum the matrices from the constituent frames.
@@ -455,10 +470,8 @@ def ArUco_SLEAP_matching(
     )
     # Go ahead and fill data for the first window
     # This lets us move forward in the rolling window just by computing the next frame entering the window each time: fast!
-    for frame in tqdm(
-        range(
-            start_end_frame[0], start_end_frame[0] + (2 * half_rolling_window_size) + 1
-        )
+    for frame in range(
+        start_end_frame[0], start_end_frame[0] + (2 * half_rolling_window_size) + 1
     ):
         new_frame_df = results_df.loc[results_df["Frame"] == int(frame)]
 
@@ -478,9 +491,12 @@ def ArUco_SLEAP_matching(
             f"[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Starting Greedy assignments with rolling window"
         )
     # Start rolling the window forward.
-    for center_of_window_frame in range(
-        start_end_frame[0] + half_rolling_window_size + 1,
-        start_end_frame[1] - half_rolling_window_size + 1,
+    for center_of_window_frame in tqdm(
+        range(
+            start_end_frame[0] + half_rolling_window_size + 1,
+            start_end_frame[1] - half_rolling_window_size + 1,
+        ),
+        desc="Frames processed",
     ):
         if enhanced_output:
             logger.info("\n\n" + "=" * 80)
@@ -603,9 +619,11 @@ def ArUco_SLEAP_matching(
             logger.info("\n")
             logger.info(f"Assigned tag-track pairs: {hungarian_pairs}")
             logger.info(f"Cost matrix shape: {cost_matrix.shape}")
+            this_frame_time = time.perf_counter()
             logger.info(
-                f"Cumulative FPS: {round((previous_frame + 1.) / (time.perf_counter() - RWTTA_start), 2)}"
+                f"FPS: {round(1. / (this_frame_time - prev_frame_time), 2)}"
             )
+            prev_frame_time = time.perf_counter()
 
     RWTTA_end = time.perf_counter()
     logger.info(
@@ -957,6 +975,20 @@ def generate_final_output_dataframe(
     output_df.to_csv(output_path, index=False)
 
 
+class TqdmLoggingHandler(logging.Handler):
+    # Code to divert tqdm logging to logging
+    def __init__(self, level=logging.NOTSET):
+        super().__init__(level)
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            tqdm.write(msg)
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+
 if __name__ == "__main__":
     # SLEAP data is necessary before running this pipeline; ArUco data will be generated here.
     # We also need the python file aruco_utils_pd.py in the same folder.
@@ -1122,6 +1154,9 @@ if __name__ == "__main__":
     logger.addHandler(
         logging.FileHandler(files_folder_path + "/" + name_stem + "_output_logs.log")
     )
+
+    # Logger add handler for tqdm progress bars
+    logger.addHandler(TqdmLoggingHandler())
 
     # Better numpy printing
     np.set_printoptions(
