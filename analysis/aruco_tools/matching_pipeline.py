@@ -46,10 +46,12 @@ import h5py
 import threading
 import multiprocessing
 import concurrent.futures
+import scipy
 from datetime import datetime
 from contextlib import redirect_stdout
 from tabulate import tabulate
-import scipy
+from tqdm import tqdm
+
 import aruco_utils_pd as awpd
 
 # Logging: display AND save output
@@ -98,17 +100,19 @@ def get_edges_list(slp_json: str):
 
     return edges_list
 
+
 def find_min_idx(x):
-    '''
+    """
     Args:
             x: 2D array
 
     Find the coordinates of the minimum value in a 2D array.
     Code stolen (and slightly slightly modified) from https://stackoverflow.com/questions/30180241/numpy-get-the-column-and-row-index-of-the-minimum-value-of-a-2d-array
-    '''
+    """
     k = x.argmin()
     ncol = x.shape[1]
-    return k//ncol, k%ncol
+    return k // ncol, k % ncol
+
 
 def ArUco_SLEAP_matching_wrapper(p):
     # Allow ArUco_SLEAP_matching to be called by passing the arguments as a tuple.
@@ -271,7 +275,7 @@ def ArUco_SLEAP_matching(
     arucoParams.perspectiveRemoveIgnoredMarginPerCell = 0.13
 
     # If false positives are a problem, lower this parameter.
-    arucoParams.errorCorrectionRate = 0.
+    arucoParams.errorCorrectionRate = 0.0
 
     # Appending results to a list is cheaper than appending them to a dataframe.
     results_array = []
@@ -302,7 +306,9 @@ def ArUco_SLEAP_matching(
             # Load the new frame
             success, frame = vs.read()
             if enhanced_output and row.Frame != start_end_frame[0]:
-                logger.info(f"Frame {previous_frame}: {detections} tag(s), FPS: {round((previous_frame + 1.) / (time.perf_counter() - ScA_start), 2)}")
+                logger.info(
+                    f"Frame {previous_frame}: {detections} tag(s), FPS: {round((previous_frame + 1.) / (time.perf_counter() - ScA_start), 2)}"
+                )
                 detections = 0
 
         # Only bother with this if the frame could be succesfully loaded.
@@ -449,8 +455,10 @@ def ArUco_SLEAP_matching(
     )
     # Go ahead and fill data for the first window
     # This lets us move forward in the rolling window just by computing the next frame entering the window each time: fast!
-    for frame in range(
-        start_end_frame[0], start_end_frame[0] + (2 * half_rolling_window_size) + 1
+    for frame in tqdm(
+        range(
+            start_end_frame[0], start_end_frame[0] + (2 * half_rolling_window_size) + 1
+        )
     ):
         new_frame_df = results_df.loc[results_df["Frame"] == int(frame)]
 
@@ -498,7 +506,7 @@ def ArUco_SLEAP_matching(
             ] -= 1
 
         # Calculate the cost matrix for this window; just by summing over the already-saved individual frame cost matrices.
-        # Technically, it's faster to subtract the cost matrix from the one frame leaving the window, then add the cost matrix of the frame entering the window.
+        # Technically, it's faster to subtract from the cost matrix the one frame leaving the window, then add the cost matrix of the frame entering the window.
         # That compromises readability and copy-paste-ability, and since this really isn't the speed bottleneck anyways, we can let it pass.
         cost_matrix = np.zeros((len(tags), len(tracks)))
         for window_frame in range(
@@ -542,7 +550,9 @@ def ArUco_SLEAP_matching(
                 hungarian_pairs = []
                 for tag, track in hungarian_result:
                     if cost_matrix[tag, track] != 0:
-                        hungarian_pairs.append((trimmed_tags[tag], trimmed_tracks[track]))
+                        hungarian_pairs.append(
+                            (trimmed_tags[tag], trimmed_tracks[track])
+                        )
         else:
             # Quick & dirty greedy matching algorithm.
             # Take the lowest cost, assign, and delete.
@@ -592,7 +602,10 @@ def ArUco_SLEAP_matching(
             )
             logger.info("\n")
             logger.info(f"Assigned tag-track pairs: {hungarian_pairs}")
-            logger.info(f"FPS: {round((previous_frame + 1.) / (time.perf_counter() - RWTTA_start), 2)}")
+            logger.info(f"Cost matrix shape: {cost_matrix.shape}")
+            logger.info(
+                f"Cumulative FPS: {round((previous_frame + 1.) / (time.perf_counter() - RWTTA_start), 2)}"
+            )
 
     RWTTA_end = time.perf_counter()
     logger.info(
@@ -657,7 +670,7 @@ def annotate_video_sleap_aruco_pairings(
     # Below code heavily based on SLEAP (sleap.io.videowriter.py)
     fps = str(fps)
     crf = 28
-    scale_factor=2
+    scale_factor = 2
     preset = "veryfast"
     writer = skvideo.io.FFmpegWriter(
         video_output_path,
@@ -688,7 +701,7 @@ def annotate_video_sleap_aruco_pairings(
     next_frame_idx = 0
     errors = 0
     previous_frame = frames_to_annotate[0]
-    for frame in awpd.progressBar(frames_to_annotate, fill="X"):
+    for frame in tqdm(frames_to_annotate, fill="X"):
         if frame != previous_frame + 1:
             video_data.set(1, frame)
         success, image = video_data.read()
@@ -740,9 +753,9 @@ def annotate_video_sleap_aruco_pairings(
                 ]  # start_idx corresponds to the tag
                 pX = int(round(prediction_tuple[0]))
                 pY = int(round(prediction_tuple[1]))
-                start_point = (pX - int((crop_size/2)), pY - int((crop_size/2)))
-                end_point = (pX + int((crop_size/2)), pY + int((crop_size/2)))                
-                color = (0,0, 255)
+                start_point = (pX - int((crop_size / 2)), pY - int((crop_size / 2)))
+                end_point = (pX + int((crop_size / 2)), pY + int((crop_size / 2)))
+                color = (0, 0, 255)
                 thickness = 2
                 image = cv2.rectangle(image, start_point, end_point, color, thickness)
 
@@ -1144,7 +1157,10 @@ if __name__ == "__main__":
         frames_per_cpu = int((end_here_frame - start_here_frame) / threads)
 
         assignment_tuples.append(
-            (start_here_frame, start_here_frame + frames_per_cpu + half_rolling_window_size)
+            (
+                start_here_frame,
+                start_here_frame + frames_per_cpu + half_rolling_window_size,
+            )
         )
 
         while (
@@ -1186,7 +1202,7 @@ if __name__ == "__main__":
                     sleap_instances,
                     sleap_frames,
                     skeleton_dict["Tag"],
-                    args.hungarian
+                    args.hungarian,
                 )
             )
             logger.info(f"[MAIN] Created assignment for {chunk}")
@@ -1278,7 +1294,7 @@ if __name__ == "__main__":
             sleap_instances,
             sleap_frames,
             skeleton_dict["Tag"],
-            args.hungarian
+            args.hungarian,
         )
         if enhanced_output:
             logger.info(np.transpose(pairings))
@@ -1320,7 +1336,9 @@ if __name__ == "__main__":
         )
 
     total_runtime_end = time.perf_counter()
-    logger.info(f'Total runtime of matching pipline: {total_runtime_end - total_runtime_start}')
+    logger.info(
+        f"Total runtime of matching pipline: {round(total_runtime_end - total_runtime_start, 2)}"
+    )
 
 # python matching_pipeline.py d:\\20210715_run001_00000000_cut.mp4 d:\\20210725_preds_1200frames.slp d:/matching_testing crop_ArUco_testing False 0 300 True
 # /Genomics/grid/users/swwolf/.conda/envs/sleap/bin/python python matching_pipeline.py -a -v 1 -w 10 -c 75 20210715_run001_00000000_1h.mp4 20210725_preds_71998.slp crop_matching_71998 crop_matching 0 71998
