@@ -295,7 +295,7 @@ def ArUco_SLEAP_matching(
     detections = 0
     iterations = 0
     with tqdm(
-        total=len(sleap_predictions_df.index), desc="SLEAP instances processed"
+        total=len(sleap_predictions_df.index), desc="SLEAP instances processed", ascii=True
     ) as pbar:
         for row in sleap_predictions_df.itertuples():
             pbar.update(1)
@@ -496,7 +496,7 @@ def ArUco_SLEAP_matching(
             start_end_frame[0] + half_rolling_window_size + 1,
             start_end_frame[1] - half_rolling_window_size + 1,
         ),
-        desc="Frames processed",
+        desc="Frames processed", ascii=True,
     ):
         if enhanced_output:
             logger.info("\n\n" + "=" * 80)
@@ -719,7 +719,7 @@ def annotate_video_sleap_aruco_pairings(
     next_frame_idx = 0
     errors = 0
     previous_frame = frames_to_annotate[0]
-    for frame in tqdm(frames_to_annotate):
+    for frame in tqdm(frames_to_annotate, ascii=True):
         if frame != previous_frame + 1:
             video_data.set(1, frame)
         success, image = video_data.read()
