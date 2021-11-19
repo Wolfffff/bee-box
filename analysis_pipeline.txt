@@ -1,0 +1,74 @@
+Analysis pipeline:
+
+1. Cut into 4-hour chunks
+
+ffmpeg -i 20210923_run001_00000000.avi -c copy -map 0 -segment_time 04:00:00 -f segment cut_videos/20210923_run001_%03d.avi
+
+2. Re-encode in SLURM job
+- FFMPEG must be installed on your conda environment
+- all of the videos should be in a folder together with the standardized name from step 1
+- Set number of jobs as ceiling(video length / 4)
+- Make sure to have a logs folder
+- This won't work for more than 10 chunks because I'm bad at writing slurm scripts :(
+
+#!/bin/bash
+#SBATCH --job-name=batch_reencode  			# Name of the job
+#SBATCH --output=logs/batch_reenc_%j.out  	# STDOUT file
+#SBATCH --error=logs/batch_reenc_%j.err   	# STDERR file
+#SBATCH --nodes=1               			# Node count
+#SBATCH --ntasks=1          				# Number of tasks across all nodes
+#SBATCH --cpus-per-task=8      				# Cores per task (>1 if multi-threaded tasks)
+#SBATCH --mem=64G           				# total memory per node
+#SBATCH --array=0-5%20 						# Number of jobs % Max number of jobs to consume
+#SBATCH --time=1-00:00:00          			# Run time limit (HH:MM:SS)
+#SBATCH --gres=gpu:1 						# 1 GPU for this job
+#SBATCH --mail-type=all          			# Email on job start, end, and fault
+#SBATCH --mail-user=dknapp@princeton.edu
+
+module load anaconda3
+module load cudatoolkit/10.1
+module load cudnn/cuda-10.1/7.6.3
+
+conda activate sleap
+
+LINE_NUMBER=${SLURM_ARRAY_TASK_ID}
+
+ffmpeg -i "/scratch/gpfs/dknapp/cut_videos/20210923_run001_00${LINE_NUMBER}.avi" -c:v libx264 "/scratch/gpfs/dknapp/cut_videos/20210923_run001_00${LINE_NUMBER}.mp4"
+
+3. Run inference on the cut videos
+- Same caveats as previous
+
+#!/bin/bash
+#SBATCH --job-name=bat_inf  				# Name of the job
+#SBATCH --output=logs/batch_inf_%j.out  	# STDOUT file
+#SBATCH --error=logs/batch_inf_%j.err   	# STDERR file
+#SBATCH --nodes=1               			# Node count
+#SBATCH --ntasks=1          				# Number of tasks across all nodes
+#SBATCH --cpus-per-task=8      				# Cores per task (>1 if multi-threaded tasks)
+#SBATCH --mem=64G           				# total memory per node
+#SBATCH --array=0-5%20 						# Number of jobs % Max number of jobs to consume
+#SBATCH --time=1-00:00:00          			# Run time limit (HH:MM:SS)
+#SBATCH --gres=gpu:1 						# 1 GPU for this job
+#SBATCH --mail-type=all          			# Email on job start, end, and fault
+#SBATCH --mail-user=dknapp@princeton.edu
+
+module load anaconda3
+module load cudatoolkit/10.1
+module load cudnn/cuda-10.1/7.6.3
+
+conda activate sleap
+
+LINE_NUMBER=${SLURM_ARRAY_TASK_ID}
+
+sleap-track "/scratch/gpfs/dknapp/cut_videos/20210923_run001_00${LINE_NUMBER}.mp4" -o "/scratch/gpfs/dknapp/cut_videos/20210923_run001_00${LINE_NUMBER}.mp4.slp" \
+ -m macro_models/centered_instance -m macro_models/centroid --verbosity json \
+ --tracking.tracker simple --tracking.similarity centroid --tracker.track_window 2 \
+ --tracking.target_instance_count 4 --tracking.post_connect_single_breaks 1
+
+4. Merge all .slp files together using Scott's python script
+- Requires conda environment with SLEAP in it as well as a couple of other bits and bobs
+- Give it A LOT of memory.  As much as possible.  128GB?
+
+bee-box/analysis/sleap_tools/slp_stitcher.py
+
+5. dknapp will compile a suite of python scripts to take the analysis beyond this point.
