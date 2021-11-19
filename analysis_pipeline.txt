@@ -68,7 +68,14 @@ sleap-track "/scratch/gpfs/dknapp/cut_videos/20210923_run001_00${LINE_NUMBER}.mp
 4. Merge all .slp files together using Scott's python script
 - Requires conda environment with SLEAP in it as well as a couple of other bits and bobs
 - Give it A LOT of memory.  As much as possible.  128GB?
+- See console help
 
 bee-box/analysis/sleap_tools/slp_stitcher.py
 
-5. dknapp will compile a suite of python scripts to take the analysis beyond this point.
+5. Run dknapp sleap aruco matching pipeline.
+- See console help
+- Should be able to run on original .avi file since re-encoding adresses SLEAP-side problems
+
+bee-box/analysis/aruco_tools/matching_pipeline.py
+
+6. dknapp will compile a suite of python scripts to take the analysis beyond this point.

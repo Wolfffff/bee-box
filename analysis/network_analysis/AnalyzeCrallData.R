@@ -1,4 +1,4 @@
-setwd("~/Downloads/BEEtag-master")
+setwd("d:\\matching_data")
 # Load Directories --------------------------------------------------------
 library(igraph)
 library(tidygraph)
@@ -69,7 +69,7 @@ NearMean <- function(M5, M4, M3, M2, M1, P1, P2, P3, P4, P5){
   return(X)
 } #This Function Takes the Average of the nearest lower value and nearest upper value
 
-TD <- read.delim('TD.txt', sep = ",", header=F) #Read the two files
+TD <- read.delim('20211018_24k_pipeline_run_aruco_data_with_track_numbers.csv', sep = ",", header=F) #Read the two files
 TD <- TD[,c(1:15, 17:24)]
 TDY <- read.delim('TDY.txt', sep = ",", header=F)
 TDY <- TDY[,c(1:15, 17:24)]

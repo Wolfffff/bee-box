@@ -1,4 +1,4 @@
-setwd("~/Downloads/24k_pipeline_run_greedy/24k_pipeline_run_greedy/")
+setwd("d:\\matching_data")
 # Load Directories --------------------------------------------------------
 library(igraph)
 library(tidygraph)
@@ -14,18 +14,21 @@ library(purrr)
 #most are required for tidygraph, 
 #then imputeTS to impute NaNs from time series data and
 #tnet, and purrr make managing dataframes easier
-# Individual Frame Analysis ----------------------------------------
-OH <- read.csv('20211018_24k_pipeline_run_aruco_data_with_track_numbers.csv', header=TRUE)
-OH <- OH[complete.cases(OH[ , 3:4]),]
-OH <- OH %>% filter(Tag!=-1) 
-OHNEdited<- OH[,1:4] 
-#These lines read the data and remove all rows missing an x/y coordinate.  There it
-#takes the frame, tag, and coordinates.  
 
+# Individual Frame Analysis ----------------------------------------
+# Read CSV file as dataframe
+OH <- read.csv('20211018_24k_pipeline_run_aruco_data_with_track_numbers.csv', header=TRUE)
+# Get rid of rows that have centroid NaNs
+OH <- OH[complete.cases(OH[ , 3:4]),]
+# Get rid of tag -1 (?)
+OH <- OH %>% filter(Tag!=-1) 
+# Forget about columns we won't use from here on
+# Frame, Tag, cX, xY
+OHNEdited<- OH[,1:4] 
+
+# Write trimmed down coordinates as .tsv file
 write.table(OHNEdited, "GreedyTags.tsv", row.names = F, sep=",") #ExportToRunAndrewsJob
 
-
-setwd("~/Downloads/24k_pipeline_run_greedy/24k_pipeline_run_greedy/")
 OHN <- read.table('350PixelCutOff.tsv', header=FALSE) #Reads Andrew's Export
 colnames(OHN) <- c('to', 'from', 'weight')
 OHN <- OHN %>% filter(weight>0.05) #Only interacting 2% of the time or more

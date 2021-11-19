@@ -6,7 +6,6 @@ from time import time
 import sleap
 import h5py
 import rich
-import h5py
 import argparse
 
 
