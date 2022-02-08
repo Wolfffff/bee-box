@@ -39,7 +39,7 @@ bee_tracks = np.stack((bee_tracks_df_x.to_numpy(), bee_tracks_df_y.to_numpy()), 
 # Remove where there are too many missing values
 missing_ct = np.count_nonzero(np.isnan(bee_tracks[:, 0, :]), axis=0)
 missing_freq = missing_ct / bee_tracks.shape[0]
-missingness_threshold = 0.9
+missingness_threshold = 0.2
 bee_tracks = bee_tracks[:, :, missing_freq < missingness_threshold]
 
 # Make sure we filter the ids too to keep everything in sync!
@@ -48,17 +48,18 @@ bee_ids = bee_ids[missing_freq < missingness_threshold]
 # %%
 # Ordering really matters on the fill pipeline
 frame_count, node_count, instance_count = bee_tracks.shape
-bee_tracks = trx_utils.fill_missing(bee_tracks, kind="linear")
+bee_tracks = trx_utils.fill_missing(bee_tracks, kind="linear",limit=10)
 
 # Mask out "super fast" speed
-
 px_mm = 13.6
+fps = 20
+threshold = 50 * (1/px_mm) * (fps)
 bee_vel = trx_utils.instance_node_velocities_bees(bee_tracks, 0, bee_tracks.shape[0])
-mask = np.stack(((bee_vel > 5*px_mm), (bee_vel > 5*px_mm)), axis=1)
+mask = np.stack(((bee_vel > threshold), (bee_vel > threshold)), axis=1)
 bee_tracks[mask] = np.nan
 
-bee_tracks = trx_utils.fill_missing(bee_tracks, kind="linear")
-bee_tracks = trx_utils.smooth_median(bee_tracks, window=5)
+# bee_tracks = trx_utils.fill_missing(bee_tracks, kind="linear", limit=10)
+# bee_tracks = trx_utils.smooth_median(bee_tracks, window=3)
 # bee_tracks = trx_utils.smooth_ewma(bee_tracks,alpha=0.3)
 
 
@@ -89,7 +90,41 @@ for i in g2:
 
 import importlib
 importlib.reload(trx_utils)
-trx_utils.plot_trx(bee_tracks_expanded, video,frame_start=0,trail_length=10, shift = 10, frame_end=10*60*20,color_map = color_map,id_map = bee_ids,scale_factor=(3672/3600))
+trx_utils.plot_trx(bee_tracks_expanded, video,frame_start=0,trail_length=10, shift = 10, frame_end=1*10*20,color_map = color_map,id_map = bee_ids,scale_factor=(3672/3600),output_path="20210208_3s_cleaner")
 
 # %%
+# from sklearn.metrics.pairwise import nan_euclidean_distances
+# import skvideo
+# output_path="interaction"
+# ffmpeg_writer = skvideo.io.FFmpegWriter(
+#     f"{output_path}_locations.mp4", outputdict={"-vcodec": "libx264","-vcodec": "libx264"}
+# )
+# import cv2
+# cap = cv2.VideoCapture(video)
+# frame_start = 0
+# frame_end = 10
+# shift = 10
+# cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start + shift - 1)
+# data = bee_tracks[frame_start:frame_end, :, :]
+# dpi = 300
 
+
+# # %%
+# import palettable
+# id_map = bee_ids
+# color_map = {id_map[i]: "blue" for i in range(len(id_map))}
+# # %%
+# for frame_idx in range(data.shape[0]):
+#     print(f"Frame {frame_idx}")
+#     data_subset = data[frame_idx, :, :]
+#     distances = nan_euclidean_distances(data_subset, data_subset)
+#     for idx in range(2, data_subset.shape[0]):
+#     # Note that you need to use single steps or the data has "steps"
+
+#     # color = color_map[id_map[fly_idx]]
+#     plt.plot(
+#         data_subset[(idx - 2) : idx,0 , fly_idx] * scale_factor,
+#         data_subset[(idx - 2) : idx, 1, fly_idx] * scale_factor,
+#         linewidth=3 * idx / data_subset.shape[0]
+#     )
+# %%

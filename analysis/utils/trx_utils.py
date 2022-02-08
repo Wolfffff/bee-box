@@ -95,7 +95,6 @@ def fill_missing(x, kind="nearest", axis=0, **kwargs):
         x = unflatten_features(x, initial_shape, axis=axis)
 
         return x
-
     return pd.DataFrame(x).interpolate(method=kind, axis=axis, **kwargs).to_numpy()
 
 
@@ -586,14 +585,14 @@ def plot_trx(
     scale_factor = 1
 ):
     ffmpeg_writer = skvideo.io.FFmpegWriter(
-        f"{output_path}_locations.mp4", outputdict={"-vcodec": "libx264","-vcodec": "libx264"}
+        f"{output_path}_locations.mp4", outputdict={"-vcodec": "libx264","-r": "20"}
     )
     cap = cv2.VideoCapture(video_path)
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start + shift - 1)
     data = tracks[frame_start:frame_end, :, :, :]
     dpi = 300
     for frame_idx in range(data.shape[0]):
-        fig, ax = plt.subplots(figsize=(3600/dpi,3600/dpi), dpi=dpi)
+        fig, ax = plt.subplots(figsize=(3672/dpi,3672/dpi), dpi=dpi)
         print(f"Frame {frame_idx}")
         data_subset = data[max((frame_idx - trail_length), 0) : frame_idx, :, :, :]
         for fly_idx in range(data_subset.shape[3]):
@@ -611,7 +610,7 @@ def plot_trx(
                         color = color_map[id_map[fly_idx]]
                         plt.plot(
                         data_subset[(idx - 2) : idx, node_idx, 0, fly_idx] * scale_factor,
-                        data_subset[(idx - 2) : idx, node_idx, 1, fly_idx]* scale_factor,
+                        data_subset[(idx - 2) : idx, node_idx, 1, fly_idx] * scale_factor,
                         linewidth=3 * idx / data_subset.shape[0],
                         color=color
                     )
