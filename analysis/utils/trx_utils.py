@@ -580,22 +580,32 @@ def plot_trx(
     frame_end=100,
     trail_length=10,
     output_path="output",
-    color_map = None,
-    id_map = None,
-    scale_factor = 1
+    color_map=None,
+    id_map=None,
+    scale_factor=1,
+    annotate=False,
 ):
     ffmpeg_writer = skvideo.io.FFmpegWriter(
-        f"{output_path}_locations.mp4", outputdict={"-vcodec": "libx264","-r": "20"}
+        f"{output_path}_locations.mp4", outputdict={"-vcodec": "libx264", "-r": "20"}
     )
     cap = cv2.VideoCapture(video_path)
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start + shift - 1)
     data = tracks[frame_start:frame_end, :, :, :]
     dpi = 300
     for frame_idx in range(data.shape[0]):
-        fig, ax = plt.subplots(figsize=(3672/dpi,3672/dpi), dpi=dpi)
+        fig, ax = plt.subplots(figsize=(3672 / dpi, 3672 / dpi), dpi=dpi)
         print(f"Frame {frame_idx}")
         data_subset = data[max((frame_idx - trail_length), 0) : frame_idx, :, :, :]
         for fly_idx in range(data_subset.shape[3]):
+            if annotate and any(id_map != None) and data_subset.shape[0] > 0:
+                plt.annotate(
+                    id_map[fly_idx],
+                    (data_subset[-1, 0, 0, fly_idx], data_subset[-1, 0, 1, fly_idx]),
+                    size=8,
+                    ha="left",
+                    va="bottom",
+                    color="#C62C1D",
+                )
             for node_idx in range(data_subset.shape[1]):
                 for idx in range(2, data_subset.shape[0]):
                     # Note that you need to use single steps or the data has "steps"
@@ -604,17 +614,18 @@ def plot_trx(
                             data_subset[(idx - 2) : idx, node_idx, 0, fly_idx],
                             data_subset[(idx - 2) : idx, node_idx, 1, fly_idx],
                             linewidth=3 * idx / data_subset.shape[0],
-                            color=palettable.tableau.Tableau_20.mpl_colors[node_idx]
+                            color=palettable.tableau.Tableau_20.mpl_colors[node_idx],
                         )
                     else:
                         color = color_map[id_map[fly_idx]]
                         plt.plot(
-                        data_subset[(idx - 2) : idx, node_idx, 0, fly_idx] * scale_factor,
-                        data_subset[(idx - 2) : idx, node_idx, 1, fly_idx] * scale_factor,
-                        linewidth=3 * idx / data_subset.shape[0],
-                        color=color
-                    )
-
+                            data_subset[(idx - 2) : idx, node_idx, 0, fly_idx]
+                            * scale_factor,
+                            data_subset[(idx - 2) : idx, node_idx, 1, fly_idx]
+                            * scale_factor,
+                            linewidth=3 * idx / data_subset.shape[0],
+                            color=color,
+                        )
 
         if cap.isOpened():
             res, frame = cap.read()
@@ -962,9 +973,12 @@ from pathlib import Path
 def ensure_dir(dir_path):
     Path(dir_path).mkdir(parents=True, exist_ok=True)
 
-def instance_node_velocities_bees(fly_node_locations,start_frame,end_frame):
+
+def instance_node_velocities_bees(fly_node_locations, start_frame, end_frame):
     frame_count = len(range(start_frame, end_frame))
-    fly_node_velocities = np.zeros((frame_count,fly_node_locations.shape[2]))
+    fly_node_velocities = np.zeros((frame_count, fly_node_locations.shape[2]))
     for bee in tqdm(range(0, fly_node_locations.shape[2])):
-        fly_node_velocities[:, bee] = smooth_diff(fly_node_locations[start_frame:end_frame, :, bee])
+        fly_node_velocities[:, bee] = smooth_diff(
+            fly_node_locations[start_frame:end_frame, :, bee]
+        )
     return fly_node_velocities

@@ -132,7 +132,7 @@ def ArUco_SLEAP_matching(
     sleap_frames=None,
     tag_node=0,
     hungarian_matching=True,
-    minimum_matching_rate: float=.5,
+    minimum_matching_rate: float = 0.5,
 ) -> np.ndarray:
     """
     Args:
@@ -296,7 +296,9 @@ def ArUco_SLEAP_matching(
     detections = 0
     iterations = 0
     with tqdm(
-        total=len(sleap_predictions_df.index), desc="SLEAP instances processed", ascii=True
+        total=len(sleap_predictions_df.index),
+        desc="SLEAP instances processed",
+        ascii=True,
     ) as pbar:
         for row in sleap_predictions_df.itertuples():
             pbar.update(1)
@@ -497,7 +499,8 @@ def ArUco_SLEAP_matching(
             start_end_frame[0] + half_rolling_window_size + 1,
             start_end_frame[1] - half_rolling_window_size + 1,
         ),
-        desc="Frames processed", ascii=True,
+        desc="Frames processed",
+        ascii=True,
     ):
         if enhanced_output:
             logger.info("\n\n" + "=" * 80)
@@ -566,7 +569,12 @@ def ArUco_SLEAP_matching(
                 )
                 hungarian_pairs = []
                 for tag, track in hungarian_result:
-                    if cost_matrix[tag, track] <= -minimum_matching_rate * (2 * half_rolling_window_size + 1) and (cost_matrix[tag, track] == np.sum(cost_matrix[tag, :]) and cost_matrix[tag, track] == np.sum(cost_matrix[:, track])):
+                    if cost_matrix[tag, track] <= -minimum_matching_rate * (
+                        2 * half_rolling_window_size + 1
+                    ) and (
+                        cost_matrix[tag, track] == np.sum(cost_matrix[tag, :])
+                        and cost_matrix[tag, track] == np.sum(cost_matrix[:, track])
+                    ):
                         hungarian_pairs.append(
                             (trimmed_tags[tag], trimmed_tracks[track])
                         )
@@ -578,10 +586,14 @@ def ArUco_SLEAP_matching(
             cost_matrix_copy = cost_matrix.copy()
             while True:
                 tag, track = find_min_idx(cost_matrix_copy)
-                if cost_matrix_copy[tag, track] >= -minimum_matching_rate * (2 * half_rolling_window_size + 1):
+                if cost_matrix_copy[tag, track] >= -minimum_matching_rate * (
+                    2 * half_rolling_window_size + 1
+                ):
                     break
                 cost_matrix_copy[tag, track] = 0
-                if (cost_matrix[tag, track] == np.sum(cost_matrix[tag, :]) and cost_matrix[tag, track] == np.sum(cost_matrix[:, track])):
+                if cost_matrix[tag, track] == np.sum(
+                    cost_matrix[tag, :]
+                ) and cost_matrix[tag, track] == np.sum(cost_matrix[:, track]):
                     hungarian_pairs.append((tags[tag], tracks[track]))
 
         # hungarian_pairs is a collection of tuples holding the raw (tag, track) pairing for this particular frame.
@@ -622,9 +634,7 @@ def ArUco_SLEAP_matching(
             logger.info(f"Assigned tag-track pairs: {hungarian_pairs}")
             logger.info(f"Cost matrix shape: {cost_matrix.shape}")
             this_frame_time = time.perf_counter()
-            logger.info(
-                f"FPS: {round(1. / (this_frame_time - prev_frame_time), 2)}"
-            )
+            logger.info(f"FPS: {round(1. / (this_frame_time - prev_frame_time), 2)}")
             prev_frame_time = time.perf_counter()
 
     RWTTA_end = time.perf_counter()
@@ -1341,7 +1351,7 @@ if __name__ == "__main__":
             sleap_frames,
             skeleton_dict["Tag"],
             args.hungarian,
-            args.minimum_matching_rate
+            args.minimum_matching_rate,
         )
         if enhanced_output:
             logger.info(np.transpose(pairings))

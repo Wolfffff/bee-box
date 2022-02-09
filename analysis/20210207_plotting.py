@@ -48,12 +48,12 @@ bee_ids = bee_ids[missing_freq < missingness_threshold]
 # %%
 # Ordering really matters on the fill pipeline
 frame_count, node_count, instance_count = bee_tracks.shape
-bee_tracks = trx_utils.fill_missing(bee_tracks, kind="linear",limit=10)
+bee_tracks = trx_utils.fill_missing(bee_tracks, kind="linear", limit=20)
 
 # Mask out "super fast" speed
-px_mm = 13.6
+px_mm = 15.6
 fps = 20
-threshold = 50 * (1/px_mm) * (fps)
+threshold = 50 * (1 / px_mm) * (fps)
 bee_vel = trx_utils.instance_node_velocities_bees(bee_tracks, 0, bee_tracks.shape[0])
 mask = np.stack(((bee_vel > threshold), (bee_vel > threshold)), axis=1)
 bee_tracks[mask] = np.nan
@@ -66,8 +66,9 @@ bee_tracks[mask] = np.nan
 # %%
 # Load videos
 import importlib
+
 importlib.reload(trx_utils)
-bee_tracks_expanded = bee_tracks[:,np.newaxis,:,:]
+bee_tracks_expanded = bee_tracks[:, np.newaxis, :, :]
 video = "/Genomics/ayroleslab2/scott/bees/bee-box/data/20210923_run001_001.mp4"
 # trx_utils.plot_trx(bee_tracks_expanded, video,frame_start=200, shift = -10, frame_end=220)
 
@@ -79,7 +80,33 @@ color_map = {nonfocal_tag_list[i]: "blue" for i in range(len(nonfocal_tag_list))
 color_map[21] = "red"
 
 # %%
-g1 = set({0, 1, 5, 8, 12, 19, 34, 35, 38, 40, 44, 47, 48, 49, 51, 55, 58, 60, 65, 70, 73, 74, 75})
+g1 = set(
+    {
+        0,
+        1,
+        5,
+        8,
+        12,
+        19,
+        34,
+        35,
+        38,
+        40,
+        44,
+        47,
+        48,
+        49,
+        51,
+        55,
+        58,
+        60,
+        65,
+        70,
+        73,
+        74,
+        75,
+    }
+)
 g2 = set({2, 6, 10, 13, 14, 17, 18, 20, 22, 24, 27, 30, 42, 52, 53, 54, 56, 61, 62, 71})
 
 for i in g1:
@@ -89,8 +116,21 @@ for i in g2:
 # %%
 
 import importlib
+
 importlib.reload(trx_utils)
-trx_utils.plot_trx(bee_tracks_expanded, video,frame_start=0,trail_length=10, shift = 10, frame_end=1*10*20,color_map = color_map,id_map = bee_ids,scale_factor=(3672/3600),output_path="20210208_3s_cleaner")
+trx_utils.plot_trx(
+    bee_tracks_expanded,
+    video,
+    frame_start=0,
+    trail_length=20,
+    shift=10,
+    frame_end=1 * 60 * 20,
+    color_map=color_map,
+    id_map=bee_ids,
+    scale_factor=(3672 / 3600),
+    output_path="20210208_1m_cleaner",
+    annotate=True,
+)
 
 # %%
 # from sklearn.metrics.pairwise import nan_euclidean_distances

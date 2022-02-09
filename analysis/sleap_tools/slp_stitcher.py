@@ -19,21 +19,20 @@ class RateColumn(rich.progress.ProgressColumn):
             return rich.progress.Text("?", style="progress.data.speed")
         return rich.progress.Text(f"{speed:.2f} it/s", style="progress.data.speed")
 
+
 parser = argparse.ArgumentParser(
-        description="Import all .slp files in a folder, stitch together the contents."
-    )
+    description="Import all .slp files in a folder, stitch together the contents."
+)
 
 parser.add_argument(
-        "folder_path",
-        help="Path of folder containing all of the .slp files to be stitched togther.",
-        type=str,
-    )
+    "folder_path",
+    help="Path of folder containing all of the .slp files to be stitched togther.",
+    type=str,
+)
 
 args = parser.parse_args()
 
-filenames = glob.glob(
-    args.folder_path + "*.slp"
-)
+filenames = glob.glob(args.folder_path + "*.slp")
 filenames.sort(key=lambda f: int(re.sub("\D", "", f)))
 print(filenames)
 
