@@ -132,6 +132,7 @@ def ArUco_SLEAP_matching(
     sleap_frames=None,
     tag_node=0,
     hungarian_matching=True,
+    minimum_matching_rate: float=.5,
 ) -> np.ndarray:
     """
     Args:
@@ -215,7 +216,7 @@ def ArUco_SLEAP_matching(
             track_number = current_instance[
                 "track"
             ]  # Member 'track':  H5T_STD_I32LE (int32)
-            prediction = sleap_predictions[int(prediction_index + tag_node)]
+            prediction = sleap_predictions[int(prediction_index + 0)]
             if (
                 prediction["score"] >= minimum_sleap_score
             ):  # Member 'score':  H5T_IEEE_F64LE (double)
@@ -565,7 +566,7 @@ def ArUco_SLEAP_matching(
                 )
                 hungarian_pairs = []
                 for tag, track in hungarian_result:
-                    if cost_matrix[tag, track] != 0:
+                    if cost_matrix[tag, track] <= -minimum_matching_rate * (2 * half_rolling_window_size + 1) and (cost_matrix[tag, track] == np.sum(cost_matrix[tag, :]) and cost_matrix[tag, track] == np.sum(cost_matrix[:, track])):
                         hungarian_pairs.append(
                             (trimmed_tags[tag], trimmed_tracks[track])
                         )
@@ -577,10 +578,11 @@ def ArUco_SLEAP_matching(
             cost_matrix_copy = cost_matrix.copy()
             while True:
                 tag, track = find_min_idx(cost_matrix_copy)
-                if cost_matrix_copy[tag, track] >= 0:
+                if cost_matrix_copy[tag, track] >= -minimum_matching_rate * (2 * half_rolling_window_size + 1):
                     break
                 cost_matrix_copy[tag, track] = 0
-                hungarian_pairs.append((tags[tag], tracks[track]))
+                if (cost_matrix[tag, track] == np.sum(cost_matrix[tag, :]) and cost_matrix[tag, track] == np.sum(cost_matrix[:, track])):
+                    hungarian_pairs.append((tags[tag], tracks[track]))
 
         # hungarian_pairs is a collection of tuples holding the raw (tag, track) pairing for this particular frame.
         # We want the pairings to be able to change between frames, so we stick them into the tag_tracks_2d_array
@@ -1121,6 +1123,14 @@ if __name__ == "__main__":
         action="store_true",
     )
 
+    parser.add_argument(
+        "-mmr",
+        "--minimum_matching_rate",
+        help="Minimum frequency of matches within window for result to be included in final result",
+        type=float,
+        default=0.5,
+    )
+
     args = parser.parse_args()
     video_path = args.video_path
     slp_file_path = args.slp_file_path
@@ -1238,6 +1248,7 @@ if __name__ == "__main__":
                     sleap_frames,
                     skeleton_dict["Tag"],
                     args.hungarian,
+                    args.minimum_matching_rate,
                 )
             )
             logger.info(f"[MAIN] Created assignment for {chunk}")
@@ -1330,6 +1341,7 @@ if __name__ == "__main__":
             sleap_frames,
             skeleton_dict["Tag"],
             args.hungarian,
+            args.minimum_matching_rate
         )
         if enhanced_output:
             logger.info(np.transpose(pairings))
