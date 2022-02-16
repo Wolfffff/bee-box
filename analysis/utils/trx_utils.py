@@ -570,11 +570,12 @@ import skvideo
 
 skvideo.setFFmpegPath("/Genomics/argo/users/swwolf/.conda/envs/sleap_dev/bin")
 import skvideo.io
+import matplotlib as mpl
 
 
 def plot_trx(
     tracks,
-    video_path,
+    video_path=None,
     shift=0,
     frame_start=0,
     frame_end=100,
@@ -586,14 +587,18 @@ def plot_trx(
     annotate=False,
 ):
     ffmpeg_writer = skvideo.io.FFmpegWriter(
-        f"{output_path}_locations.mp4", outputdict={"-vcodec": "libx264", "-r": "20"}
+        f"{output_path}", outputdict={"-vcodec": "libx264"}
     )
-    cap = cv2.VideoCapture(video_path)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start + shift - 1)
+    if video_path != None:
+        cap = cv2.VideoCapture(video_path)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start + shift - 1)
     data = tracks[frame_start:frame_end, :, :, :]
     dpi = 300
     for frame_idx in range(data.shape[0]):
-        fig, ax = plt.subplots(figsize=(3672 / dpi, 3672 / dpi), dpi=dpi)
+        fig, ax = plt.subplots(figsize=(3660 / dpi, 3660 / dpi), dpi=dpi)
+        plt.gca().invert_yaxis()
+        # plt.xlim((0, 3660))
+        # plt.ylim((-3660, 0))
         print(f"Frame {frame_idx}")
         data_subset = data[max((frame_idx - trail_length), 0) : frame_idx, :, :, :]
         for fly_idx in range(data_subset.shape[3]):
@@ -601,10 +606,10 @@ def plot_trx(
                 plt.annotate(
                     id_map[fly_idx],
                     (data_subset[-1, 0, 0, fly_idx], data_subset[-1, 0, 1, fly_idx]),
-                    size=8,
+                    size=18,
                     ha="left",
                     va="bottom",
-                    color="#C62C1D",
+                    color="#CB9E23",
                 )
             for node_idx in range(data_subset.shape[1]):
                 for idx in range(2, data_subset.shape[0]):
@@ -613,28 +618,30 @@ def plot_trx(
                         plt.plot(
                             data_subset[(idx - 2) : idx, node_idx, 0, fly_idx],
                             data_subset[(idx - 2) : idx, node_idx, 1, fly_idx],
-                            linewidth=3 * idx / data_subset.shape[0],
+                            linewidth=6 * idx / data_subset.shape[0],
                             color=palettable.tableau.Tableau_20.mpl_colors[node_idx],
                         )
                     else:
                         color = color_map[id_map[fly_idx]]
-                        plt.plot(
+                        (l,) = ax.plot(
                             data_subset[(idx - 2) : idx, node_idx, 0, fly_idx]
                             * scale_factor,
                             data_subset[(idx - 2) : idx, node_idx, 1, fly_idx]
                             * scale_factor,
-                            linewidth=3 * idx / data_subset.shape[0],
+                            linewidth=6 * idx / data_subset.shape[0],
                             color=color,
                         )
-
-        if cap.isOpened():
-            res, frame = cap.read()
-            frame = frame[:, :, 0]
-            plt.imshow(frame, cmap="gray")
+                        l.set_solid_capstyle("round")
+        if video_path != None:
+            if cap.isOpened():
+                res, frame = cap.read()
+                frame = frame[:, :, 0]
+                # frame[:,:,:] = 255
+                plt.imshow(frame, cmap="gray")
         ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
         ax.set_axis_off()
         fig.add_axes(ax)
-        fig.set_size_inches(5, 5, True)
+        fig.set_size_inches(3660/dpi, 3660/dpi, True)
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
         ax.axis("off")
