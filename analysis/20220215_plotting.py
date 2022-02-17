@@ -77,3 +77,12 @@ with open('tracks.pickle', 'rb') as handle:
     key_tracks_dict = pickle.load(handle)
 
 # %%
+
+bee_tracks = key_tracks_dict["tracks"]
+bee_ids = key_tracks_dict["keys"]
+
+#%%
+
+np.apply_along_axis(np.mean, 0, np.isnan(bee_tracks))[0,0,:]
+
+# %%
