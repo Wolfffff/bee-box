@@ -131,9 +131,11 @@ def ArUco_SLEAP_matching(
     sleap_instances=None,
     sleap_frames=None,
     tag_node=0,
-    hungarian_matching=True,
-    minimum_matching_rate: float = 0.5,
+    hungarian_matching=False,
+    democratic_matching=False,
+    cost_matrix_path="do not save"
 ) -> np.ndarray:
+    tag_node = 0
     """
     Args:
             video_path: path to bee video file.
@@ -197,7 +199,7 @@ def ArUco_SLEAP_matching(
 
     # Iterate from the start to end frame of the range specified to collect the SLEAP predictions into a simple dataframe
     # We start with everything in a list which is cheaper to append to.  Then we instantiate a dataframe using the list.
-    sleap_predictions_df = []
+    sleap_predictions_array = []
     for frame_number in range(start_end_frame[0], start_end_frame[1] + 1):
         # Throw an exception if we can't find proper SLEAP data in the provided .slp file path.
         try:
@@ -221,18 +223,19 @@ def ArUco_SLEAP_matching(
                 prediction["score"] >= minimum_sleap_score
             ):  # Member 'score':  H5T_IEEE_F64LE (double)
                 # if prediction[2] == 1 and prediction[3] == 1: # Member 'visible':  H5T_ENUM, Member 'complete':  H5T_ENUM
-                sleap_predictions_df.append(
+                sleap_predictions_array.append(
                     (
                         frame_number,
                         track_number,
                         float(prediction["x"]),
                         float(prediction["y"]),
+                        prediction["score"],
                     )
                 )
 
     # Instantiate the dataframe
     sleap_predictions_df = pd.DataFrame(
-        sleap_predictions_df, columns=["Frame", "Track", "cX", "cY"]
+        sleap_predictions_array, columns=["Frame", "Track", "cX", "cY", "Score"]
     )
 
     sleap_interpolation_end = time.perf_counter()
@@ -372,7 +375,7 @@ def ArUco_SLEAP_matching(
                             topRight[1] - bottomLeft[1], topRight[0] - bottomLeft[0]
                         )
 
-                        # 'Frame', 'Track', 'Tag', 'cX','cY', 'Theta'
+                        # 'Frame', 'Track', 'Tag', 'cX','cY', 'Theta', 'Score'
                         results_array.append(
                             (
                                 row.Frame,
@@ -381,6 +384,7 @@ def ArUco_SLEAP_matching(
                                 row.cX,
                                 row.cY,
                                 Theta,
+                                row.Score
                             )
                         )
 
@@ -393,7 +397,7 @@ def ArUco_SLEAP_matching(
 
     # Instantiate a results dataframe and save it!
     results_df = pd.DataFrame(
-        results_array, columns=["Frame", "Track", "Tag", "cX", "cY", "Theta"]
+        results_array, columns=["Frame", "Track", "Tag", "cX", "cY", "Theta", "Score"]
     )
     results_df = results_df.astype(
         {
@@ -403,6 +407,7 @@ def ArUco_SLEAP_matching(
             "cX": np.float64,
             "cY": np.float64,
             "Theta": np.float64,
+            "Score": np.float64,
         }
     )
 
@@ -483,7 +488,7 @@ def ArUco_SLEAP_matching(
         for row in new_frame_df.itertuples():
             frame_cost_matrices_dict[frame][
                 tag_indices[int(row.Tag)], track_indices[int(row.Track)]
-            ] -= 1
+            ] -= float(row.Score)
 
     if hungarian_matching:
         logger.info(
@@ -493,6 +498,8 @@ def ArUco_SLEAP_matching(
         logger.info(
             f"[ArUco_SLEAP_matching {start_end_frame}] [Rolling Window Tag-Track Association] Starting Greedy assignments with rolling window"
         )
+    # Save cost matrices to save later
+    cost_matrices = []
     # Start rolling the window forward.
     for center_of_window_frame in tqdm(
         range(
@@ -520,10 +527,16 @@ def ArUco_SLEAP_matching(
             results_df["Frame"]
             == int(center_of_window_frame) + half_rolling_window_size
         ]
-        for row in new_frame_df.itertuples():
-            frame_cost_matrices_dict[center_of_window_frame + half_rolling_window_size][
-                tag_indices[int(row.Tag)], track_indices[int(row.Track)]
-            ] -= 1
+        if democratic_matching:
+            for row in new_frame_df.itertuples():
+                frame_cost_matrices_dict[center_of_window_frame + half_rolling_window_size][
+                    tag_indices[int(row.Tag)], track_indices[int(row.Track)]
+                ] -= 1
+        else:
+            for row in new_frame_df.itertuples():
+                frame_cost_matrices_dict[center_of_window_frame + half_rolling_window_size][
+                    tag_indices[int(row.Tag)], track_indices[int(row.Track)]
+                ] -= float(row.Score)
 
         # Calculate the cost matrix for this window; just by summing over the already-saved individual frame cost matrices.
         # Technically, it's faster to subtract from the cost matrix the one frame leaving the window, then add the cost matrix of the frame entering the window.
@@ -636,6 +649,8 @@ def ArUco_SLEAP_matching(
             this_frame_time = time.perf_counter()
             logger.info(f"FPS: {round(1. / (this_frame_time - prev_frame_time), 2)}")
             prev_frame_time = time.perf_counter()
+        # Save the cost matrix
+        cost_matrices.append(cost_matrix)
 
     RWTTA_end = time.perf_counter()
     logger.info(
@@ -657,6 +672,9 @@ def ArUco_SLEAP_matching(
     logger.info(
         f"[ArUco_SLEAP_matching {start_end_frame}] Done with SLEAP-based cropping ArUco tag-track association"
     )
+
+    if cost_matrix_path != "do not save":
+        np.savetxt(cost_matrix_path, np.array(cost_matrices), delimiter=",")
 
     return tag_tracks_2d_array.astype(int)
 
@@ -1134,12 +1152,12 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "-mmr",
-        "--minimum_matching_rate",
-        help="Minimum frequency of matches within window for result to be included in final result",
-        type=float,
-        default=0.5,
+        "-dm",
+        "--democratic",
+        help="Instead of weighting track detection by SLEAP confidence score, treat each detection as equal.",
+        action="store_true",
     )
+
 
     args = parser.parse_args()
     video_path = args.video_path
@@ -1258,7 +1276,8 @@ if __name__ == "__main__":
                     sleap_frames,
                     skeleton_dict["Tag"],
                     args.hungarian,
-                    args.minimum_matching_rate,
+                    args.democratic,
+                    "do not save",
                 )
             )
             logger.info(f"[MAIN] Created assignment for {chunk}")
@@ -1351,7 +1370,8 @@ if __name__ == "__main__":
             sleap_frames,
             skeleton_dict["Tag"],
             args.hungarian,
-            args.minimum_matching_rate,
+            args.democratic,
+            files_folder_path + "/" + name_stem + "_cost_matrices.csv"
         )
         if enhanced_output:
             logger.info(np.transpose(pairings))
