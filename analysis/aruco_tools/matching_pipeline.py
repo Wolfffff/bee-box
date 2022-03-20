@@ -1,5 +1,5 @@
 import argparse
-import multiprocessing
+import ray.util.multiprocessing as multiprocessing
 import concurrent.futures
 import time
 import logging
@@ -128,12 +128,16 @@ if __name__ == "__main__":
         default=5,
     )
 
+    try:
+        default_threads = np.nanmax(len(os.sched_getaffinity(0)), 0)
+    except:
+        default_threads = 0
     parser.add_argument(
         "-t",
         "--threads",
         help="Used to specific max number of threads used by concurrent.futures.ThreadPoolExecutor",
         type=int,
-        default=multiprocessing.cpu_count(),
+        default=default_threads,
     )
 
     parser.add_argument(
@@ -209,9 +213,9 @@ if __name__ == "__main__":
         files_folder_path + "/" + name_stem + "_aruco_data_with_track_numbers.csv"
     )
     if multithreaded and args.annotate_only == "":
-        # Find number of CPU to maximize parallelization!
-        number_of_cpus = multiprocessing.cpu_count()
-        logger.info(f"[MAIN] {number_of_cpus} CPUs available!")
+        if default_threads == 0 or threads > default_threads:
+            logger.info(f"[MAIN][!!!!!!] Parallelized running was selected, but there is a high probability it will fail!")            
+        logger.info(f"[MAIN] {default_threads} CPUs available!")
 
         # Split the assigned frames into parallel chunks
         # The code is slightly messy because the chunks must overlap by half_rolling_window_size... for details see the docstring for ArUco_sleap_matching
@@ -360,7 +364,8 @@ if __name__ == "__main__":
             skeleton_dict["Tag"],
             args.hungarian,
             args.democratic,
-            files_folder_path + "/" + name_stem + "_cost_matrices.csv"
+            files_folder_path + "/" + name_stem + "_cost_matrices.csv",
+            disable_tqdm=False,
         )
         if enhanced_output:
             logger.info(np.transpose(pairings))

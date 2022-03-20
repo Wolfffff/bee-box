@@ -1,6 +1,3 @@
-import os
-import sys
-import argparse
 import logging
 import json
 import cv2
@@ -10,8 +7,6 @@ import pandas as pd
 import time
 import h5py
 import threading
-import multiprocessing
-import concurrent.futures
 import scipy
 from datetime import datetime
 from contextlib import redirect_stdout
@@ -101,8 +96,10 @@ def ArUco_SLEAP_matching(
     hungarian_matching=False,
     democratic_matching=False,
     cost_matrix_path="do not save",
-    minimum_matching_rate = 0.5
+    minimum_matching_rate = 0.5,
+    disable_tqdm=True,
 ) -> np.ndarray:
+    # Below line is a hotfix for a known problem.
     tag_node = 0
     """
     Args:
@@ -187,8 +184,9 @@ def ArUco_SLEAP_matching(
                 "track"
             ]  # Member 'track':  H5T_STD_I32LE (int32)
             prediction = sleap_predictions[int(prediction_index + 0)]
+            # Instances with zero as the score lack predictions, causing errors later on.  Removing this.
             if (
-                prediction["score"] >= minimum_sleap_score
+                prediction["score"] >= minimum_sleap_score and prediction["score"] > 0
             ):  # Member 'score':  H5T_IEEE_F64LE (double)
                 # if prediction[2] == 1 and prediction[3] == 1: # Member 'visible':  H5T_ENUM, Member 'complete':  H5T_ENUM
                 sleap_predictions_array.append(
@@ -268,8 +266,9 @@ def ArUco_SLEAP_matching(
     iterations = 0
     with tqdm(
         total=len(sleap_predictions_df.index),
-        desc="SLEAP instances processed",
+        desc=f"[ArUco_SLEAP_matching {start_end_frame}] [SLEAP-cropped ArUco] SLEAP instances processed",
         ascii=True,
+        disable=disable_tqdm,
     ) as pbar:
         for row in sleap_predictions_df.itertuples():
             pbar.update(1)
@@ -287,7 +286,7 @@ def ArUco_SLEAP_matching(
                 if enhanced_output and row.Frame != start_end_frame[0]:
                     this_frame_time = time.perf_counter()
                     logger.info(
-                        f"Frame {previous_frame}: {detections} tag(s), FPS: {round(1. / (this_frame_time - prev_frame_time), 2)}"
+                        f"[ArUco_SLEAP_matching {start_end_frame}] [SLEAP-cropped ArUco] Frame {previous_frame}: {detections} tag(s), FPS: {round(1. / (this_frame_time - prev_frame_time), 2)}"
                     )
                     prev_frame_time = this_frame_time
                     detections = 0
@@ -476,6 +475,7 @@ def ArUco_SLEAP_matching(
         ),
         desc="Frames processed",
         ascii=True,
+        disable=disable_tqdm,
     ):
         if enhanced_output:
             logger.info("\n\n" + "=" * 80)
@@ -644,7 +644,7 @@ def ArUco_SLEAP_matching(
         edgeitems=30, linewidth=100000, formatter=dict(float=lambda x: "%.3g" % x)
     )
     if cost_matrix_path != "do not save":
-        np.savetxt(cost_matrix_path, np.array(cost_matrices), delimiter=",", fmt="%s")
+        np.save(cost_matrix_path, np.array(cost_matrices))
 
     return tag_tracks_2d_array.astype(int)
 
@@ -763,6 +763,8 @@ def annotate_video_sleap_aruco_pairings(
                 prediction_tuple = sleap_predictions[
                     prediction_start_idx
                 ]  # start_idx corresponds to the tag
+                if np.isnan(prediction_tuple[0]) or np.isnan(prediction_tuple[1]):
+                    continue
                 pX = int(round(prediction_tuple[0]))
                 pY = int(round(prediction_tuple[1]))
                 start_point = (pX - int((crop_size / 2)), pY - int((crop_size / 2)))
