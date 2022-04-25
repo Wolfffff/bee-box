@@ -641,7 +641,7 @@ def plot_trx(
         ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
         ax.set_axis_off()
         fig.add_axes(ax)
-        fig.set_size_inches(3660/dpi, 3660/dpi, True)
+        fig.set_size_inches(3660 / dpi, 3660 / dpi, True)
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
         ax.axis("off")

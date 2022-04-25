@@ -40,7 +40,7 @@ frame_count, node_count, coords_count, instance_count = bee_tracks.shape
 
 # %%
 # Remove where there are too many missing values
-missing_ct = np.count_nonzero(np.isnan(bee_tracks[:,:, 0, :]), axis=0)
+missing_ct = np.count_nonzero(np.isnan(bee_tracks[:, :, 0, :]), axis=0)
 missing_freq = missing_ct / bee_tracks.shape[0]
 missingness_threshold = 0.2
 missing_selector = (missing_freq < missingness_threshold).flatten()
@@ -67,13 +67,14 @@ bee_tracks = trx_utils.smooth_gaussian(bee_tracks, std=2, window=10)
 
 
 # %%
-key_tracks_dict = {"keys": bee_ids, "tracks":bee_tracks}
+key_tracks_dict = {"keys": bee_ids, "tracks": bee_tracks}
 
 import pickle
-with open('tracks.pickle', 'wb') as handle:
+
+with open("tracks.pickle", "wb") as handle:
     pickle.dump(key_tracks_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 # %%
-with open('tracks.pickle', 'rb') as handle:
+with open("tracks.pickle", "rb") as handle:
     key_tracks_dict = pickle.load(handle)
 
 # %%
@@ -83,6 +84,6 @@ bee_ids = key_tracks_dict["keys"]
 
 #%%
 
-np.apply_along_axis(np.mean, 0, np.isnan(bee_tracks))[0,0,:]
+np.apply_along_axis(np.mean, 0, np.isnan(bee_tracks))[0, 0, :]
 
 # %%

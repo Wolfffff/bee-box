@@ -117,6 +117,7 @@ for i in g2:
 # %%
 
 import importlib
+
 importlib.reload(trx_utils)
 # bee_tracks_expanded[:, :, 1, :] = -bee_tracks_expanded[:, :, 1, :]
 # trx_utils.plot_trx(
@@ -137,24 +138,27 @@ importlib.reload(trx_utils)
 import cv2
 from matplotlib.collections import LineCollection
 import matplotlib as mpl
-id_map=bee_ids
-color_map=color_map
-mpl.rcParams['lines.solid_capstyle'] = 'round'
-mpl.rcParams['lines.solid_joinstyle'] = 'round'
-angles=np.repeat(0,999999)
+
+id_map = bee_ids
+color_map = color_map
+mpl.rcParams["lines.solid_capstyle"] = "round"
+mpl.rcParams["lines.solid_joinstyle"] = "round"
+angles = np.repeat(0, 999999)
 video_path = video
 frame_start = 0
-frame_end = 1*30*fps
-trail_length=20
+frame_end = 1 * 30 * fps
+trail_length = 20
 import skvideo
 import time
-fly_ids=[7]
+
+fly_ids = [7]
 fly_id = 7
 import palettable
+
 ctr_idx = 0
 expmt_name = "test"
 tracks = bee_tracks_expanded[frame_start:frame_end, :, :, :]
-output_path=f'14s_ego.mp4'#{time.strftime("%Y%m%d_%H%M%S")}_{frame_start}to{frame_end}_{expmt_name}_fly{fly_id}_raw_ego.mp4'
+output_path = f"14s_ego.mp4"  # {time.strftime("%Y%m%d_%H%M%S")}_{frame_start}to{frame_end}_{expmt_name}_fly{fly_id}_raw_ego.mp4'
 ffmpeg_writer = skvideo.io.FFmpegWriter(
     f"{output_path}", outputdict={"-vcodec": "libx264"}
 )
@@ -185,25 +189,29 @@ for frame_idx in range(data.shape[0]):
     print(f"Frame {frame_idx}")
     data_subset = data[max((frame_idx - trail_length), 0) : frame_idx, :, :, :]
     for fly_idx in range(data_subset.shape[3]):
-                for node_idx in range(data_subset.shape[1]):
-                    for idx in range(2, data_subset.shape[0]):
-                        # Note that you need to use single steps or the data has "steps"
-                        if color_map == None:
-                            plt.plot(
-                                data_subset[(idx - 2) : idx, node_idx, 0, fly_idx]*(3672/3600),
-                                data_subset[(idx - 2) : idx, node_idx, 1, fly_idx]*(3672/3600),
-                                linewidth=6 * idx / data_subset.shape[0],
-                                color=palettable.tableau.Tableau_20.mpl_colors[node_idx],
-                            )
-                        else:
-                            color = color_map[id_map[fly_idx]]
-                            (l,) = ax.plot(
-                                data_subset[(idx - 2) : idx, node_idx, 0, fly_idx]*(3672/3600),
-                                data_subset[(idx - 2) : idx, node_idx, 1, fly_idx]*(3672/3600),
-                                linewidth=6 * idx / data_subset.shape[0],
-                                color=color,
-                            )
-                            l.set_solid_capstyle("round")
+        for node_idx in range(data_subset.shape[1]):
+            for idx in range(2, data_subset.shape[0]):
+                # Note that you need to use single steps or the data has "steps"
+                if color_map == None:
+                    plt.plot(
+                        data_subset[(idx - 2) : idx, node_idx, 0, fly_idx]
+                        * (3672 / 3600),
+                        data_subset[(idx - 2) : idx, node_idx, 1, fly_idx]
+                        * (3672 / 3600),
+                        linewidth=6 * idx / data_subset.shape[0],
+                        color=palettable.tableau.Tableau_20.mpl_colors[node_idx],
+                    )
+                else:
+                    color = color_map[id_map[fly_idx]]
+                    (l,) = ax.plot(
+                        data_subset[(idx - 2) : idx, node_idx, 0, fly_idx]
+                        * (3672 / 3600),
+                        data_subset[(idx - 2) : idx, node_idx, 1, fly_idx]
+                        * (3672 / 3600),
+                        linewidth=6 * idx / data_subset.shape[0],
+                        color=color,
+                    )
+                    l.set_solid_capstyle("round")
 
     # ax = plt.Axes(fig, [0., 0., 1., 1.])
     # ax.set_axis_off()
@@ -216,8 +224,8 @@ for frame_idx in range(data.shape[0]):
     # fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
     ax.set(xlim=[-0.5, width - 0.5], ylim=[height - 0.5, -0.5], aspect=1)
     xy = data[frame_idx, ctr_idx, 0:2, fly_idx]
-    x = xy[0]*(3672/3600)
-    y = xy[1]*(3672/3600)
+    x = xy[0] * (3672 / 3600)
+    y = xy[1] * (3672 / 3600)
     ax.set_xlim((x - 320), (x + 320))
     ax.set_ylim((y - 320), (y + 320))
 
