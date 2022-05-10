@@ -33,7 +33,7 @@ def sleap_reader(slp_predictions_path: str) -> h5py.File:
 
 
 def get_skeleton_dict(slp_json: str):
-    
+
     """
     Args:
             slp_json: .slp file '/metadata' json string.
@@ -101,7 +101,7 @@ def ArUco_SLEAP_matching(
     hungarian_matching=False,
     democratic_matching=False,
     cost_matrix_path="do not save",
-    minimum_matching_rate = 0.5
+    minimum_matching_rate=0.5,
 ) -> np.ndarray:
     tag_node = 0
     """
@@ -352,7 +352,7 @@ def ArUco_SLEAP_matching(
                                 row.cX,
                                 row.cY,
                                 Theta,
-                                row.Score
+                                row.Score,
                             )
                         )
 
@@ -497,14 +497,16 @@ def ArUco_SLEAP_matching(
         ]
         if democratic_matching:
             for row in new_frame_df.itertuples():
-                frame_cost_matrices_dict[center_of_window_frame + half_rolling_window_size][
-                    tag_indices[int(row.Tag)], track_indices[int(row.Track)]
-                ] -= 1
+                frame_cost_matrices_dict[
+                    center_of_window_frame + half_rolling_window_size
+                ][tag_indices[int(row.Tag)], track_indices[int(row.Track)]] -= 1
         else:
             for row in new_frame_df.itertuples():
-                frame_cost_matrices_dict[center_of_window_frame + half_rolling_window_size][
-                    tag_indices[int(row.Tag)], track_indices[int(row.Track)]
-                ] -= float(row.Score)
+                frame_cost_matrices_dict[
+                    center_of_window_frame + half_rolling_window_size
+                ][tag_indices[int(row.Tag)], track_indices[int(row.Track)]] -= float(
+                    row.Score
+                )
 
         # Calculate the cost matrix for this window; just by summing over the already-saved individual frame cost matrices.
         # Technically, it's faster to subtract from the cost matrix the one frame leaving the window, then add the cost matrix of the frame entering the window.
@@ -656,7 +658,7 @@ def annotate_video_sleap_aruco_pairings(
     slp_predictions_path: str,
     pairings: list,
     frames_to_annotate: list,
-    crop_size: int = 40
+    crop_size: int = 40,
 ) -> None:
     """
     annotate video with pairings of aruco tags and sleap tracks
@@ -832,7 +834,7 @@ def generate_final_output_dataframe(
     sleap_instances=None,
     sleap_frames=None,
     skeleton_dict: dict = {},
-    enhanced_output: bool = False
+    enhanced_output: bool = False,
 ) -> None:
     """
     Args:

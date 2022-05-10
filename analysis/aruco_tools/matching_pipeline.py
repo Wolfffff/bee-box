@@ -150,7 +150,6 @@ if __name__ == "__main__":
         action="store_true",
     )
 
-
     args = parser.parse_args()
     video_path = args.video_path
     slp_file_path = args.slp_file_path
@@ -360,7 +359,7 @@ if __name__ == "__main__":
             skeleton_dict["Tag"],
             args.hungarian,
             args.democratic,
-            files_folder_path + "/" + name_stem + "_cost_matrices.csv"
+            files_folder_path + "/" + name_stem + "_cost_matrices.csv",
         )
         if enhanced_output:
             logger.info(np.transpose(pairings))
@@ -399,7 +398,7 @@ if __name__ == "__main__":
             slp_file_path,
             pairings,
             range(start_here_frame, end_here_frame),
-            crop_size
+            crop_size,
         )
 
     total_runtime_end = time.perf_counter()
