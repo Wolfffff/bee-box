@@ -288,20 +288,20 @@ def instance_node_velocities(fly_node_locations, start_frame, end_frame):
         )
         for fly_idx in range(fly_node_locations.shape[3]):
             for n in tqdm(range(0, fly_node_locations.shape[1])):
-                fly_node_velocities[:, n, fly_idx] = smooth_diff(
+                fly_node_velocities[:, n, fly_idx] = diff(
                     fly_node_locations[start_frame:end_frame, n, :, fly_idx]
                 )
     else:
         fly_node_velocities = np.zeros((frame_count, fly_node_locations.shape[1]))
         for n in tqdm(range(0, fly_node_locations.shape[1] - 1)):
-            fly_node_velocities[:, n] = smooth_diff(
+            fly_node_velocities[:, n] = diff(
                 fly_node_locations[start_frame:end_frame, n, :]
             )
 
     return fly_node_velocities
 
 
-def smooth_diff(node_loc, win=25, poly=3):
+def diff(node_loc, diff_func = np.gradient, **kwargs):
     """
     node_loc is a [frames, 2] arrayF
 
@@ -312,14 +312,31 @@ def smooth_diff(node_loc, win=25, poly=3):
 
     """
     node_loc_vel = np.zeros_like(node_loc)
-
     for c in range(node_loc.shape[-1]):
-        node_loc_vel[:, c] = np.gradient(
-            node_loc[:, c]
-        )  # savgol_filter(node_loc[:, c], win, poly, deriv=1)
+        node_loc_vel[:, c] = diff_func(node_loc[:, c], **kwargs)
 
-    node_vel = np.linalg.norm(node_loc_vel, axis=1)
+    node_vel = np.linalg.norm(node_loc_vel,axis=1)
 
+    return node_vel
+
+
+from scipy.interpolate import interp1d
+from tqdm import tqdm
+
+def smooth_diff(node_loc, win=25, poly=3 ):
+    """
+    node_loc is a [frames, 2] arrayF
+
+    win defines the window to smooth over
+
+    poly defines the order of the polynomial
+    to fit with
+
+    """
+    node_loc_vel = np.zeros_like(node_loc)
+    for c in range(node_loc.shape[-1]):
+        node_loc_vel[:, c] = savgol_filter(node_loc[:, c], win, poly, deriv=1)
+    node_vel = np.linalg.norm(node_loc_vel,axis=1)
     return node_vel
 
 

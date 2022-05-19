@@ -1,13 +1,7 @@
 import os
-import sys
-import logging
-import argparse
 import itertools
 import pandas as pd
 import seaborn as sns
-import h5py
-import palettable
-import distinctipy
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -15,15 +9,10 @@ import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-# import utils.trx_utils as trx_utils
-
+import utils.trx_utils as trx_utils
 from seaborn.distributions import distplot
 from matplotlib import colors
-from tqdm import tqdm
-from pathlib import Path
 from scipy import stats
-from cv2 import cv2
-from matplotlib.animation import FuncAnimation
 
 from spatial import SpatialInteractor, SpatialRectangle
 
@@ -109,14 +98,13 @@ class Tracking:
                 **kwargs,
             )
             track_df = track_df.reindex(
-                range(k * section_length, (k + 1) * section_length)
+                range(section_length)
             )
-
             # Concat the track dataframe
             if k == 0:
                 merged_df = track_df
             else:
-                merged_df = pd.concat([merged_df, track_df])
+                merged_df = pd.concat([merged_df, track_df], axis=0,ignore_index=True)
 
         return cls(
             track_dataframe=merged_df,
@@ -192,9 +180,23 @@ class Tracking:
     def interpolate(self, **kwargs):
         self._track_dataframe = self._track_dataframe.interpolate(axis=0, **kwargs)
 
-    def getNumpyArray(self):
-        df = self._track_dataframe.copy()
-        
+    def to_numpy(self):
+        df = self._track_dataframe
+        arr = np.empty(shape=(df.shape[0],len(self._coord_pairs),2,df.keys().unique(level="Tag").shape[0]))
+        uniq_cols = list(pd.unique([col[0] for col in self._track_dataframe.columns]))
+        for count, pair in enumerate(self._coord_pairs):
+            count = np.where([self._coord_pairs[count][0] in sublist for sublist in uniq_cols])[0][0]//2
+            arr[:,count,0,:] = df[pair[0]]
+            arr[:,count,1,:] = df[pair[1]]
+        return arr
+
+    def update_from_numpy(self, arr):
+        reshaped_arr = np.empty(self._track_dataframe.shape)
+        for node in range(arr.shape[1]):
+            for coord in range(arr.shape[2]):
+                reshaped_arr[:, ((node*2+coord)*arr.shape[3]):((node*2+coord+1)*arr.shape[3])] = arr[:, node, coord, :]
+        self._track_dataframe.values = reshaped_arr
+
 
 
     def interactionRandomDistances(
@@ -229,7 +231,7 @@ class Tracking:
 			2) Round the values, if specified
 			3) Restrict coords if given as inclusion coordinates
 			4) Remove coords if given as exclusion coordinates
-			
+
 			"""
             coords_subset_dataframe = coords_dataframe[
                 [col_pair_x, col_pair_y]
@@ -311,7 +313,7 @@ class Tracking:
 			2) Round the values, if specified
 			3) Restrict coords if given as inclusion coordinates
 			4) Remove coords if given as exclusion coordinates
-			
+
 			"""
             coords_subset_dataframe = coords_dataframe[
                 [col_pair_x, col_pair_y]
@@ -415,7 +417,7 @@ class Tracking:
 			2) Round the values, if specified
 			3) Restrict coords if given as inclusion coordinates
 			4) Remove coords if given as exclusion coordinates
-			
+
 			"""
             coords_subset_dataframe = coords_dataframe[
                 [col_pair_x, col_pair_y]
