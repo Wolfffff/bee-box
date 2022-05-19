@@ -121,7 +121,7 @@ def ArUco_SLEAP_matching(
             This means that for a frame to be processed, it needs to have half_rolling_window_size frames on either side within the assigned range.
             For instance, if I assigned start_end_frame = (1000, 2000) with half_rolling_window_size = 50, the output would have pairings only for frames in the range [1051, 1949]
 
-    Overall process:
+    Overall proce/ss:
             1. Load SLEAP data.
             2. Pull out the SLEAP data we care about from the h5 format so that we can iterate over each SLEAP prediction of a tag. > results_df_path
             3. Around each SLEAP tag prediction, crop a small segment of the frame and run ArUco on this.
@@ -185,7 +185,7 @@ def ArUco_SLEAP_matching(
             ]  # Member 'point_id_start':  H5T_STD_U64LE (uint64)
             track_number = current_instance[
                 "track"
-            ]  # Member 'track':  H5T_STD_I32LE (int32)
+            ]   # Member 'track':  H5T_STD_I32LE (int32)
             prediction = sleap_predictions[int(prediction_index + 0)]
             if (
                 prediction["score"] >= minimum_sleap_score
@@ -266,6 +266,7 @@ def ArUco_SLEAP_matching(
     # This variable counts tags detected; only relevant for enhanced_output = True
     detections = 0
     iterations = 0
+    from random import randint
     with tqdm(
         total=len(sleap_predictions_df.index),
         desc="SLEAP instances processed",
@@ -310,6 +311,7 @@ def ArUco_SLEAP_matching(
                 if display_images_cv2:
                     cv2.imshow("cropped area", cv2.resize(cropped_area, (500, 500)))
                     cv2.waitKey(0)
+                # cv2.imwrite(str(randint(0,1000000)) + '.jpg',cropped_area)
 
                 # Run ArUco
                 (corners, ids, rejected) = cv2.aruco.detectMarkers(
