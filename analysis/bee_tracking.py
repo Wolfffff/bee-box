@@ -104,7 +104,8 @@ class Tracking:
             if k == 0:
                 merged_df = track_df
             else:
-                merged_df = pd.concat([merged_df, track_df], axis=0,ignore_index=True)
+                merged_df = pd.concat([merged_df, track_df], axis=0)
+            print(f"Merged Dataframe: {merged_df.shape}")
 
         return cls(
             track_dataframe=merged_df,
