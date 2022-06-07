@@ -50,12 +50,12 @@ class BeeVideos (list):
 				# Assign the segment name
 				video_name = segment_name.split('_')[0]
 
-				# Assign the segment number
-				try: segment_number = int(segment_name.split('_')[-1])
-				except: continue
-			
 				# Check if a segment dict has been defined
 				if segment_dict:
+
+					# Assign the segment number
+					try: segment_number = int(segment_name.split('_')[-1])
+					except: continue
 
 					# Check if the video is specified (from which the segment was taken)
 					if video_name not in segment_dict: continue
